@@ -23,6 +23,17 @@ try {
       if (indexOfNewLine !== -1) {
         firstLine = firstLine.slice(0, indexOfNewLine);
       }
+
+      // Извлекаем ID задачи из суффикса в скобках
+      const taskId = firstLine.match(/\(([A-Z]+-\d+)\):/)?.[1];
+      let youGileLink = '';
+
+      if (taskId) {
+        youGileLink = ` [${locale.taskLink}](https://ru.yougile.com/team/129fed1fbadf/#${taskId})`;
+        // Убираем суффикс с task ID из сообщения
+        firstLine = firstLine.replace(/\([A-Z]+-\d+\):/, ':');
+      }
+
       firstLine = firstLine.replace(escapeRegex, '\\$1');
       const isFirstLineHasPrefix = firstLine.includes(`${prefix}:`);
 
@@ -31,7 +42,7 @@ try {
           changelogText += `*${locale.prefixes[prefix]}*\n`;
         }
         firstLine = firstLine.replace(`${prefix}:`, locale.emojis[prefix]);
-        changelogText += `${firstLine} \\(${commit.author.username}\\)\n`;
+        changelogText += `${firstLine} \\(${commit.author.username}\\)${youGileLink}\n`;
       }
     }
 
