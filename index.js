@@ -81,6 +81,8 @@ async function getChangelogText(commits, prefixes, yogileInstance) {
         youGileLink = ` [${locale.taskLink}](https://ru.yougile.com/team/129fed1fbadf/#${taskId})`;
         // Убираем суффикс с task ID из сообщения
         firstLine = firstLine.replace(/\([A-Z]+-\d+\):/, ':');
+      } else {
+        continue; // Если нет ID задачи, пропускаем этот коммит
       }
 
       firstLine = firstLine.replace(escapeRegex, '\\$1');
