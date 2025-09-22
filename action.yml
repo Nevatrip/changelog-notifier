@@ -1,8 +1,8 @@
-name: 'Changelog Notifier'
-description: 'Notifies you in Telegram when there is a new release'
+name: "Changelog Notifier"
+description: "Notifies you in Telegram when there is a new release"
 inputs:
   prefixes:
-    description: 'Prefixes to search for'
+    description: "Prefixes to search for"
     required: false
     default: |-
       feat
@@ -13,18 +13,21 @@ inputs:
       perf
       test
       chore
-  token: 
-    description: 'Telegram bot token'
+  token:
+    description: "Telegram bot token"
     required: true
   chat_id:
-    description: 'Telegram chat id'
+    description: "Telegram chat id"
     required: true
   project_name:
-    description: 'Project name'
+    description: "Project name"
     required: false
   commits:
-    description: 'Commits'
+    description: "Commits"
     required: false
+  yougile_api_key:
+    description: "YouGile API key"
+    required: true
 runs:
-  using: 'node20'
-  main: 'dist/index.js'
+  using: "node20"
+  main: "dist/index.js"
