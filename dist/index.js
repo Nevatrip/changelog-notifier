@@ -31281,8 +31281,10 @@ function parseTaskMessage(message) {
   const problemStart = message.indexOf(problemTitle);
   if (problemStart === -1) { return ''; }
 
-  const problemEnd = message.indexOf("\n\n", problemStart);
-  if (problemEnd === -1) { return ''; }
+  let problemEnd = message.indexOf("\n", problemStart);
+  if (problemEnd === -1) {
+    problemEnd = message.length;
+  }
 
   return message.slice(problemStart + problemTitle.length, problemEnd).trim();
 }
