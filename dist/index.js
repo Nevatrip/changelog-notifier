@@ -31230,7 +31230,7 @@ async function getChangelogText(commits, prefixes, yogileInstance) {
         if (taskId && yogileInstance) {
           const cardInfo = await getCardInfo(taskId, yogileInstance);
           if (cardInfo) {
-            firstLine = locale.emojis[prefix] + " " + cardInfo.title;
+            firstLine = locale.emojis[prefix] + " " + cardInfo.title.replace(escapeRegex, '\\$1');
             description = cardInfo.description;
           }
         }
@@ -31240,7 +31240,7 @@ async function getChangelogText(commits, prefixes, yogileInstance) {
         if (description) {
           const problemTitleText = locale.problemTitle;
           changelogText += ">*" + problemTitleText + "*\n";
-          changelogText += ">" + description.replace('\n', '\n>') + "\n";
+          changelogText += ">" + description.replace('\n', '\n>').replace(escapeRegex, '\\$1') + "\n";
         }
       }
     }
