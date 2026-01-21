@@ -28,6 +28,17 @@ inputs:
   yougile_api_key:
     description: "YouGile API key"
     required: true
+  pushgateway_url:
+    description: "Prometheus Pushgateway URL (e.g., http://pushgateway:9091). If not provided, metrics are skipped."
+    required: false
+  environment:
+    description: "Deployment environment (used as metric label)"
+    required: false
+    default: "production"
+  metrics_job_name:
+    description: "Prometheus job name for DORA metrics"
+    required: false
+    default: "dora_metrics"
 runs:
   using: "node20"
   main: "dist/index.js"

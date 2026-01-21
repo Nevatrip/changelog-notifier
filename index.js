@@ -2,6 +2,7 @@ const core = require('@actions/core');
 const github = require('@actions/github');
 const locale = require('./locale.json');
 const Yogile = require('./yogile');
+const metricsModule = require('./metrics');
 
 const escapeRegex = /([|{\[\]*_~}+)(#>!=\-.])/gm;
 
@@ -31,6 +32,29 @@ async function main() {
     }
 
     changelogText = `*${projectName || repo}*\n\n` + changelogText;
+
+    // Push DORA metrics to Pushgateway (optional) - before Telegram notification
+    const pushgatewayUrl = core.getInput('pushgateway_url');
+    if (pushgatewayUrl) {
+      try {
+        await metricsModule.recordAndPushMetrics({
+          commits,
+          ref: github.context.ref,
+          projectName: projectName || repo,
+          repository: repo,
+          pushgatewayUrl,
+          environment: core.getInput('environment') || 'production',
+          jobName: core.getInput('metrics_job_name') || 'dora_metrics',
+          githubToken: process.env.GITHUB_TOKEN || core.getInput('token'),
+          yogileInstance: yogileInstance
+        });
+
+        core.info('DORA metrics pushed to Pushgateway');
+      } catch (error) {
+        // Non-fatal: log warning but continue
+        core.warning(`Failed to push metrics: ${error.message}`);
+      }
+    }
 
     const token = core.getInput('token');
     const chatId = core.getInput('chat_id');
