@@ -116,6 +116,12 @@ Action автоматически собирает и экспортирует 4
 
 **Примечание:** Cycle Time требует YouGile API и доступен только для коммитов с task ID (TECH-XXXX).
 
+### Label `has_task`
+
+Все метрики включают label `has_task` (true/false), позволяющий разделить:
+- **Коммиты с задачами** (`has_task="true"`) - фичи и баги с task ID (например, TECH-1234)
+- **Коммиты без задач** (`has_task="false"`) - технические коммиты, мелкие исправления, hotfix'ы без карточек
+
 ---
 
 ### Тестирование
@@ -218,7 +224,7 @@ git push --follow-tags
 **Как считается:**
 - Каждый запуск action инкрементирует счетчик `deployment_total`
 - Метрика: Counter (монотонно возрастающее значение)
-- Labels: `project`, `repository`, `environment`
+- Labels: `project`, `repository`, `environment`, `has_task` (true если хотя бы один коммит содержит task ID)
 
 ---
 
@@ -228,6 +234,7 @@ git push --follow-tags
 
 **Как считается:**
 1. Для каждого коммита в релизе:
+   - Определяет наличие task ID (YYYY-XXXX) в сообщении коммита
    - Пытается найти связанный Pull Request через GitHub API
    - Если PR найден → берет `pr.created_at` как начальное время
    - Если PR не найден → берет `commit.timestamp` как fallback

@@ -100,6 +100,16 @@ const RETRY_ATTEMPTS = 3;
 const RETRY_DELAY_MS = 1000;
 
 /**
+ * Check if commit message contains a task ID
+ * @param {string} message - Commit message
+ * @returns {boolean} - True if task ID found
+ */
+function hasTaskId(message) {
+  const taskIdPattern = /[A-Z]+-\d+/;
+  return taskIdPattern.test(message);
+}
+
+/**
  * Main entry point for recording and pushing DORA metrics
  * @param {Object} config - Configuration object
  * @param {Array} config.commits - Array of commit objects
@@ -135,14 +145,14 @@ async function recordAndPushMetrics(config) {
   const deploymentCounter = new Counter({
     name: 'deployment_total',
     help: 'Total number of deployments',
-    labelNames: ['project', 'repository', 'environment'],
+    labelNames: ['project', 'repository', 'environment', 'has_task'],
     registers: [registry]
   });
 
   const leadTimeHistogram = new Histogram({
     name: 'deployment_lead_time_seconds',
     help: 'Lead time from first commit to deployment in seconds',
-    labelNames: ['project', 'repository', 'environment'],
+    labelNames: ['project', 'repository', 'environment', 'has_task'],
     buckets: LEAD_TIME_BUCKETS,
     registers: [registry]
   });
@@ -150,14 +160,14 @@ async function recordAndPushMetrics(config) {
   const failureCounter = new Counter({
     name: 'deployment_failures_total',
     help: 'Total number of failed deployments',
-    labelNames: ['project', 'repository', 'environment'],
+    labelNames: ['project', 'repository', 'environment', 'has_task'],
     registers: [registry]
   });
 
   const mttrHistogram = new Histogram({
     name: 'incident_recovery_time_seconds',
     help: 'Time to recover from incidents in seconds',
-    labelNames: ['project', 'repository', 'environment', 'incident_type'],
+    labelNames: ['project', 'repository', 'environment', 'incident_type', 'has_task'],
     buckets: MTTR_BUCKETS,
     registers: [registry]
   });
@@ -165,20 +175,23 @@ async function recordAndPushMetrics(config) {
   const cycleTimeHistogram = new Histogram({
     name: 'cycle_time_seconds',
     help: 'Cycle time from task creation to deployment in seconds',
-    labelNames: ['project', 'repository', 'environment'],
+    labelNames: ['project', 'repository', 'environment', 'has_task'],
     buckets: CYCLE_TIME_BUCKETS,
     registers: [registry]
   });
 
-  const labels = { project: projectName, repository, environment };
+  // Determine if deployment has commits with tasks
+  const deploymentHasTask = commits.some(commit => hasTaskId(commit.message));
+  const baseLabels = { project: projectName, repository, environment };
 
   // 1. Record deployment
-  deploymentCounter.inc(labels);
-  core.info(`Recorded deployment for ${projectName} in ${environment}`);
+  const deploymentLabels = { ...baseLabels, has_task: deploymentHasTask.toString() };
+  deploymentCounter.inc(deploymentLabels);
+  core.info(`Recorded deployment for ${projectName} in ${environment} (has_task: ${deploymentHasTask})`);
 
   // 2. Calculate and record Lead Time
   try {
-    await calculateLeadTimes(commits, githubToken, leadTimeHistogram, labels);
+    await calculateLeadTimes(commits, githubToken, leadTimeHistogram, baseLabels);
   } catch (error) {
     core.warning(`Failed to calculate lead times: ${error.message}`);
   }
@@ -186,7 +199,7 @@ async function recordAndPushMetrics(config) {
   // 3. Calculate and record Cycle Time (if YouGile available)
   if (yogileInstance) {
     try {
-      await calculateCycleTimes(commits, yogileInstance, cycleTimeHistogram, labels);
+      await calculateCycleTimes(commits, yogileInstance, cycleTimeHistogram, baseLabels);
     } catch (error) {
       core.warning(`Failed to calculate cycle times: ${error.message}`);
     }
@@ -195,13 +208,13 @@ async function recordAndPushMetrics(config) {
   // 4. Detect failures and calculate MTTR
   const hasFailure = detectFailures(commits);
   if (hasFailure) {
-    failureCounter.inc(labels);
+    failureCounter.inc(deploymentLabels);
     core.info('Detected deployment failure (revert commit found)');
   }
 
   // 5. Calculate MTTR
   try {
-    await calculateMTTR(commits, ref, mttrHistogram, labels);
+    await calculateMTTR(commits, ref, mttrHistogram, baseLabels, deploymentHasTask);
   } catch (error) {
     core.warning(`Failed to calculate MTTR: ${error.message}`);
   }
@@ -230,6 +243,9 @@ async function calculateLeadTimes(commits, githubToken, leadTimeHistogram, label
   for (const commit of commits) {
     try {
       let commitTime;
+      const commitSha = (commit.sha || commit.id)?.substring(0, 7);
+      const commitHasTask = hasTaskId(commit.message);
+      const commitLabels = { ...labels, has_task: commitHasTask.toString() };
 
       // Try to get PR information for this commit
       try {
@@ -242,17 +258,14 @@ async function calculateLeadTimes(commits, githubToken, leadTimeHistogram, label
         if (pulls && pulls.length > 0) {
           const pr = pulls[0];
           commitTime = new Date(pr.created_at);
-          const commitSha = (commit.sha || commit.id)?.substring(0, 7);
           core.info(`Commit ${commitSha} linked to PR #${pr.number}, created at ${pr.created_at}`);
         } else {
           // Fallback: use commit timestamp
           commitTime = new Date(commit.timestamp);
-          const commitSha = (commit.sha || commit.id)?.substring(0, 7);
           core.info(`Commit ${commitSha} has no associated PR, using commit timestamp`);
         }
       } catch (apiError) {
         // GitHub API rate limit or other error - use commit timestamp as fallback
-        const commitSha = (commit.sha || commit.id)?.substring(0, 7);
         core.warning(`GitHub API error for commit ${commitSha}: ${apiError.message}`);
         commitTime = new Date(commit.timestamp);
       }
@@ -262,7 +275,6 @@ async function calculateLeadTimes(commits, githubToken, leadTimeHistogram, label
 
       // Filter outliers and invalid values
       const maxLeadTimeSeconds = MAX_LEAD_TIME_DAYS * 24 * 60 * 60;
-      const commitSha = (commit.sha || commit.id)?.substring(0, 7);
       if (leadTimeSeconds < 0) {
         core.warning(`Negative lead time detected for commit ${commitSha}, skipping`);
         continue;
@@ -270,10 +282,10 @@ async function calculateLeadTimes(commits, githubToken, leadTimeHistogram, label
 
       if (leadTimeSeconds > maxLeadTimeSeconds) {
         core.warning(`Lead time exceeds ${MAX_LEAD_TIME_DAYS} days for commit ${commitSha}, capping value`);
-        leadTimeHistogram.observe(labels, maxLeadTimeSeconds);
+        leadTimeHistogram.observe(commitLabels, maxLeadTimeSeconds);
       } else {
-        leadTimeHistogram.observe(labels, leadTimeSeconds);
-        core.info(`Lead time for commit ${commitSha}: ${Math.round(leadTimeSeconds / 60)} minutes`);
+        leadTimeHistogram.observe(commitLabels, leadTimeSeconds);
+        core.info(`Lead time for commit ${commitSha}: ${Math.round(leadTimeSeconds / 60)} minutes (has_task: ${commitHasTask})`);
       }
     } catch (error) {
       const commitSha = (commit.sha || commit.id)?.substring(0, 7);
@@ -306,6 +318,8 @@ async function calculateCycleTimes(commits, yogileInstance, cycleTimeHistogram, 
       }
 
       const taskId = taskIdMatch[1];
+      // Cycle time is only calculated for commits with tasks, so has_task is always true
+      const commitLabels = { ...labels, has_task: 'true' };
 
       // Get task from YouGile API
       const task = await yogileInstance.getTask(taskId);
@@ -335,9 +349,9 @@ async function calculateCycleTimes(commits, yogileInstance, cycleTimeHistogram, 
 
       if (cycleTimeSeconds > maxCycleTimeSeconds) {
         core.warning(`Cycle time exceeds ${MAX_CYCLE_TIME_DAYS} days for task ${taskId}, capping value`);
-        cycleTimeHistogram.observe(labels, maxCycleTimeSeconds);
+        cycleTimeHistogram.observe(commitLabels, maxCycleTimeSeconds);
       } else {
-        cycleTimeHistogram.observe(labels, cycleTimeSeconds);
+        cycleTimeHistogram.observe(commitLabels, cycleTimeSeconds);
         const cycleDays = Math.round(cycleTimeSeconds / 86400);
         core.info(`Cycle time for task ${taskId}: ${cycleDays} days`);
       }
@@ -354,8 +368,9 @@ async function calculateCycleTimes(commits, yogileInstance, cycleTimeHistogram, 
  * @param {string} ref - Git ref
  * @param {Histogram} mttrHistogram - MTTR histogram metric
  * @param {Object} labels - Metric labels
+ * @param {boolean} deploymentHasTask - Whether deployment has commits with task IDs
  */
-async function calculateMTTR(commits, ref, mttrHistogram, labels) {
+async function calculateMTTR(commits, ref, mttrHistogram, labels, deploymentHasTask) {
   const deploymentTime = new Date();
 
   // Find earliest commit in the release
@@ -367,10 +382,12 @@ async function calculateMTTR(commits, ref, mttrHistogram, labels) {
     return;
   }
 
+  const mttrLabels = { ...labels, has_task: deploymentHasTask.toString() };
+
   // Check for revert commits first
   const hasRevertCommit = commits.some(commit => extractIncidentType(commit.message, ref) === 'revert');
   if (hasRevertCommit) {
-    mttrHistogram.observe({ ...labels, incident_type: 'revert' }, recoveryTimeSeconds);
+    mttrHistogram.observe({ ...mttrLabels, incident_type: 'revert' }, recoveryTimeSeconds);
     core.info(`MTTR for revert incident: ${Math.round(recoveryTimeSeconds / 60)} minutes`);
     return;
   }
@@ -378,7 +395,7 @@ async function calculateMTTR(commits, ref, mttrHistogram, labels) {
   // Check for hotfix deployment from ref
   const incidentType = extractIncidentType('', ref);
   if (incidentType === 'hotfix') {
-    mttrHistogram.observe({ ...labels, incident_type: 'hotfix' }, recoveryTimeSeconds);
+    mttrHistogram.observe({ ...mttrLabels, incident_type: 'hotfix' }, recoveryTimeSeconds);
     core.info(`MTTR for hotfix deployment: ${Math.round(recoveryTimeSeconds / 60)} minutes`);
   }
 }
