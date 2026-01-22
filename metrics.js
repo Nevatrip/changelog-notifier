@@ -175,8 +175,30 @@ async function calculateLeadTimes(commits, githubToken, leadTimeHistogram, label
 
         if (pulls && pulls.length > 0) {
           const pr = pulls[0];
-          commitTime = new Date(pr.created_at);
-          core.info(`Commit ${commitSha} linked to PR #${pr.number}, created at ${pr.created_at}`);
+
+          // Get first commit in PR
+          try {
+            const { data: prCommits } = await octokit.rest.pulls.listCommits({
+              owner,
+              repo,
+              pull_number: pr.number,
+              per_page: 100
+            });
+
+            if (prCommits && prCommits.length > 0) {
+              // First commit in the PR
+              const firstCommit = prCommits[0];
+              commitTime = new Date(firstCommit.commit.author.date || firstCommit.commit.committer.date);
+              core.info(`Commit ${commitSha} linked to PR #${pr.number}, first commit at ${commitTime.toISOString()}`);
+            } else {
+              // Fallback to current commit timestamp
+              commitTime = new Date(commit.timestamp);
+              core.info(`PR #${pr.number} has no commits, using commit timestamp`);
+            }
+          } catch (prError) {
+            core.warning(`Failed to get PR commits for #${pr.number}: ${prError.message}, using commit timestamp`);
+            commitTime = new Date(commit.timestamp);
+          }
         } else {
           // Fallback: use commit timestamp
           commitTime = new Date(commit.timestamp);
