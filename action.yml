@@ -39,6 +39,9 @@ inputs:
     description: "Prometheus job name for DORA metrics"
     required: false
     default: "dora_metrics"
+  github_token:
+    description: "GitHub token for API access (calculating lead times). If not provided, defaults to GITHUB_TOKEN environment variable."
+    required: false
 runs:
   using: "node20"
   main: "dist/index.js"

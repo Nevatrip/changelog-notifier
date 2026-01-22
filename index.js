@@ -35,7 +35,7 @@ async function main() {
           pushgatewayUrl,
           environment: core.getInput('environment') || 'production',
           jobName: core.getInput('metrics_job_name') || 'dora_metrics',
-          githubToken: process.env.GITHUB_TOKEN || core.getInput('token'),
+          githubToken: core.getInput('github_token') || process.env.GITHUB_TOKEN,
           yogileInstance: yogileInstance
         });
 
