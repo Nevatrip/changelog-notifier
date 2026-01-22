@@ -38475,16 +38475,6 @@ async function main() {
         : JSON.parse(core.getInput('commits'));
     const { repo } = github.context.repo;
 
-    let changelogText = await getChangelogText(commits, prefixes, yogileInstance);
-
-    if (changelogText.trim() === '') {
-      core.info('No changes found');
-      return;
-    }
-
-    changelogText = `*${projectName || repo}*\n\n` + changelogText;
-
-    // Push DORA metrics to Pushgateway (optional) - before Telegram notification
     const pushgatewayUrl = core.getInput('pushgateway_url');
     if (pushgatewayUrl) {
       try {
@@ -38506,6 +38496,14 @@ async function main() {
         core.warning(`Failed to push metrics: ${error.message}`);
       }
     }
+
+    let changelogText = await getChangelogText(commits, prefixes, yogileInstance);
+    if (changelogText.trim() === '') {
+      core.info('No changes found');
+      return;
+    }
+
+    changelogText = `*${projectName || repo}*\n\n` + changelogText;
 
     const token = core.getInput('token');
     const chatId = core.getInput('chat_id');
