@@ -160,15 +160,18 @@ async function calculateLeadTimes(commits, githubToken, leadTimeHistogram, label
         if (pulls && pulls.length > 0) {
           const pr = pulls[0];
           commitTime = new Date(pr.created_at);
-          core.info(`Commit ${commit.sha?.substring(0, 7)} linked to PR #${pr.number}, created at ${pr.created_at}`);
+          const commitSha = (commit.sha || commit.id)?.substring(0, 7);
+          core.info(`Commit ${commitSha} linked to PR #${pr.number}, created at ${pr.created_at}`);
         } else {
           // Fallback: use commit timestamp
           commitTime = new Date(commit.timestamp);
-          core.info(`Commit ${commit.sha?.substring(0, 7)} has no associated PR, using commit timestamp`);
+          const commitSha = (commit.sha || commit.id)?.substring(0, 7);
+          core.info(`Commit ${commitSha} has no associated PR, using commit timestamp`);
         }
       } catch (apiError) {
         // GitHub API rate limit or other error - use commit timestamp as fallback
-        core.warning(`GitHub API error for commit ${commit.sha?.substring(0, 7)}: ${apiError.message}`);
+        const commitSha = (commit.sha || commit.id)?.substring(0, 7);
+        core.warning(`GitHub API error for commit ${commitSha}: ${apiError.message}`);
         commitTime = new Date(commit.timestamp);
       }
 
@@ -177,20 +180,22 @@ async function calculateLeadTimes(commits, githubToken, leadTimeHistogram, label
 
       // Filter outliers and invalid values
       const maxLeadTimeSeconds = MAX_LEAD_TIME_DAYS * 24 * 60 * 60;
+      const commitSha = (commit.sha || commit.id)?.substring(0, 7);
       if (leadTimeSeconds < 0) {
-        core.warning(`Negative lead time detected for commit ${commit.sha?.substring(0, 7)}, skipping`);
+        core.warning(`Negative lead time detected for commit ${commitSha}, skipping`);
         continue;
       }
 
       if (leadTimeSeconds > maxLeadTimeSeconds) {
-        core.warning(`Lead time exceeds ${MAX_LEAD_TIME_DAYS} days for commit ${commit.sha?.substring(0, 7)}, capping value`);
+        core.warning(`Lead time exceeds ${MAX_LEAD_TIME_DAYS} days for commit ${commitSha}, capping value`);
         leadTimeHistogram.observe(labels, maxLeadTimeSeconds);
       } else {
         leadTimeHistogram.observe(labels, leadTimeSeconds);
-        core.info(`Lead time for commit ${commit.sha?.substring(0, 7)}: ${Math.round(leadTimeSeconds / 60)} minutes`);
+        core.info(`Lead time for commit ${commitSha}: ${Math.round(leadTimeSeconds / 60)} minutes`);
       }
     } catch (error) {
-      core.warning(`Failed to calculate lead time for commit ${commit.sha?.substring(0, 7)}: ${error.message}`);
+      const commitSha = (commit.sha || commit.id)?.substring(0, 7);
+      core.warning(`Failed to calculate lead time for commit ${commitSha}: ${error.message}`);
     }
   }
 }
@@ -255,7 +260,8 @@ async function calculateCycleTimes(commits, yogileInstance, cycleTimeHistogram, 
         core.info(`Cycle time for task ${taskId}: ${cycleDays} days`);
       }
     } catch (error) {
-      core.warning(`Failed to calculate cycle time for commit ${commit.sha?.substring(0, 7)}: ${error.message}`);
+      const commitSha = (commit.sha || commit.id)?.substring(0, 7);
+      core.warning(`Failed to calculate cycle time for commit ${commitSha}: ${error.message}`);
     }
   }
 }
