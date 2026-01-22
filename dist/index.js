@@ -460,17 +460,17 @@ async function pushWithRetry(registry, config, maxRetries) {
  * @param {Object} config - Configuration object
  */
 async function pushMetricsToPushgateway(registry, config) {
-  const { pushgatewayUrl, jobName, repository, projectName } = config;
+  const { pushgatewayUrl, jobName, repository, projectName, environment = 'production' } = config;
 
-  // Construct Pushgateway URL
-  // Format: http://pushgateway/metrics/job/{job}
-  // Note: All other labels (project, repository, environment) are embedded in the metrics themselves
-  const url = `${pushgatewayUrl}/metrics/job/${encodeURIComponent(jobName)}`;
+  // Construct Pushgateway URL with grouping keys to prevent metrics from being overwritten
+  // Format: http://pushgateway/metrics/job/{job}/project/{project}/repository/{repo}/environment/{env}
+  // Using POST instead of PUT to append/update metrics without deleting existing ones
+  const url = `${pushgatewayUrl}/metrics/job/${encodeURIComponent(jobName)}/project/${encodeURIComponent(projectName)}/repository/${encodeURIComponent(repository)}/environment/${encodeURIComponent(environment)}`;
 
   const metrics = await registry.metrics();
 
   const response = await fetch(url, {
-    method: 'PUT',
+    method: 'POST',
     headers: {
       'Content-Type': 'text/plain; version=0.0.4'
     },

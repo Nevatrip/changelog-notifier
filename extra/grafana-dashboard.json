@@ -18,46 +18,48 @@
   "editable": true,
   "fiscalYearStartMonth": 0,
   "graphTooltip": 0,
-  "id": null,
+  "id": 67,
   "links": [],
-  "liveNow": false,
+  "liveNow": true,
   "panels": [
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "${datasource}"
+        "uid": "${DS_PROMETHEUS}"
       },
-      "description": "Number of deployments per day. Elite performers: Multiple deploys per day. High performers: Once per day to once per week.",
       "fieldConfig": {
         "defaults": {
           "color": {
             "mode": "palette-classic"
           },
           "custom": {
+            "axisBorderShow": false,
             "axisCenteredZero": false,
             "axisColorMode": "text",
-            "axisLabel": "",
+            "axisLabel": "Deployments",
             "axisPlacement": "auto",
             "barAlignment": 0,
-            "drawStyle": "line",
-            "fillOpacity": 20,
+            "barWidthFactor": 0.6,
+            "drawStyle": "bars",
+            "fillOpacity": 80,
             "gradientMode": "none",
             "hideFrom": {
+              "legend": false,
               "tooltip": false,
-              "viz": false,
-              "legend": false
+              "viz": false
             },
+            "insertNulls": false,
             "lineInterpolation": "linear",
-            "lineWidth": 2,
+            "lineWidth": 1,
             "pointSize": 5,
             "scaleDistribution": {
               "type": "linear"
             },
-            "showPoints": "auto",
+            "showPoints": "never",
             "spanNulls": false,
             "stacking": {
               "group": "A",
-              "mode": "none"
+              "mode": "normal"
             },
             "thresholdsStyle": {
               "mode": "off"
@@ -69,7 +71,7 @@
             "steps": [
               {
                 "color": "green",
-                "value": null
+                "value": 0
               }
             ]
           },
@@ -79,45 +81,199 @@
       },
       "gridPos": {
         "h": 8,
-        "w": 12,
+        "w": 24,
         "x": 0,
         "y": 0
       },
       "id": 1,
       "options": {
         "legend": {
-          "calcs": ["mean", "lastNotNull", "max"],
+          "calcs": ["sum"],
           "displayMode": "table",
           "placement": "bottom",
           "showLegend": true
         },
         "tooltip": {
-          "mode": "single",
+          "mode": "multi",
           "sort": "none"
         }
       },
+      "pluginVersion": "12.1.1",
       "targets": [
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "${datasource}"
+            "uid": "${DS_PROMETHEUS}"
           },
           "editorMode": "code",
-          "expr": "sum(increase(deployment_total{project=\"$project\", repository=\"$repository\", environment=\"$environment\"}[1d]))",
-          "legendFormat": "Deployments per day",
-          "range": true,
+          "expr": "dora:deployment_count:total{project=~\"$project\", environment=~\"$environment\"}",
+          "instant": false,
+          "legendFormat": "{{project}} ({{environment}})",
           "refId": "A"
         }
       ],
-      "title": "Deployment Frequency",
+      "title": "1. Частота развертываний (Deployment Frequency)",
       "type": "timeseries"
     },
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "${datasource}"
+        "uid": "${DS_PROMETHEUS}"
       },
-      "description": "Percentage of deployments that result in failure. Elite: 0-15%. High: 16-30%.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "mappings": [],
+          "max": 604800,
+          "min": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": 0
+              },
+              {
+                "color": "yellow",
+                "value": 3600
+              },
+              {
+                "color": "orange",
+                "value": 86400
+              },
+              {
+                "color": "red",
+                "value": 604800
+              }
+            ]
+          },
+          "unit": "s"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 6,
+        "x": 0,
+        "y": 8
+      },
+      "id": 2,
+      "options": {
+        "minVizHeight": 75,
+        "minVizWidth": 75,
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "showThresholdLabels": false,
+        "showThresholdMarkers": true,
+        "sizing": "auto"
+      },
+      "pluginVersion": "12.1.1",
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "editorMode": "code",
+          "expr": "avg by (project, environment) (deployment_lead_time_seconds{job=\"dora_metrics\", project=~\"$project\", environment=~\"$environment\"})",
+          "instant": true,
+          "legendFormat": "Lead Time",
+          "refId": "A"
+        }
+      ],
+      "title": "2. Время выхода изменений (Lead Time)",
+      "type": "gauge"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "mappings": [],
+          "max": 86400,
+          "min": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": 0
+              },
+              {
+                "color": "yellow",
+                "value": 3600
+              },
+              {
+                "color": "orange",
+                "value": 14400
+              },
+              {
+                "color": "red",
+                "value": 86400
+              }
+            ]
+          },
+          "unit": "s"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 6,
+        "x": 6,
+        "y": 8
+      },
+      "id": 3,
+      "options": {
+        "minVizHeight": 75,
+        "minVizWidth": 75,
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "showThresholdLabels": false,
+        "showThresholdMarkers": true,
+        "sizing": "auto"
+      },
+      "pluginVersion": "12.1.1",
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "editorMode": "code",
+          "expr": "avg by (project, environment) (incident_recovery_time_seconds{job=\"dora_metrics\", project=~\"$project\", environment=~\"$environment\"})",
+          "instant": true,
+          "legendFormat": "MTTR",
+          "refId": "A"
+        }
+      ],
+      "title": "3. Время восстановления (MTTR)",
+      "type": "gauge"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -131,7 +287,7 @@
             "steps": [
               {
                 "color": "green",
-                "value": null
+                "value": 0
               },
               {
                 "color": "yellow",
@@ -155,70 +311,76 @@
         "h": 8,
         "w": 6,
         "x": 12,
-        "y": 0
+        "y": 8
       },
-      "id": 2,
+      "id": 4,
       "options": {
+        "minVizHeight": 75,
+        "minVizWidth": 75,
         "orientation": "auto",
         "reduceOptions": {
-          "values": false,
-          "calcs": ["lastNotNull"],
-          "fields": ""
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
         },
         "showThresholdLabels": false,
-        "showThresholdMarkers": true
+        "showThresholdMarkers": true,
+        "sizing": "auto"
       },
-      "pluginVersion": "10.0.0",
+      "pluginVersion": "12.1.1",
       "targets": [
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "${datasource}"
+            "uid": "${DS_PROMETHEUS}"
           },
           "editorMode": "code",
-          "expr": "(\n  sum(rate(deployment_failures_total{project=\"$project\", repository=\"$repository\", environment=\"$environment\"}[$__range]))\n  /\n  sum(rate(deployment_total{project=\"$project\", repository=\"$repository\", environment=\"$environment\"}[$__range]))\n) * 100",
+          "expr": "(count(deployment_failure_created_seconds{job=\"dora_metrics\", project=~\"$project\", environment=~\"$environment\"}) / clamp_min(count(deployment_created_seconds{job=\"dora_metrics\", project=~\"$project\", environment=~\"$environment\"}), 1)) * 100",
+          "instant": true,
           "legendFormat": "Failure Rate",
-          "range": true,
           "refId": "A"
         }
       ],
-      "title": "Change Failure Rate",
+      "title": "4. Процент неудачных изменений (Change Failure Rate)",
       "type": "gauge"
     },
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "${datasource}"
+        "uid": "${DS_PROMETHEUS}"
       },
-      "description": "90th percentile time to recover from incidents. Elite: < 1 hour. High: < 1 day.",
       "fieldConfig": {
         "defaults": {
           "color": {
             "mode": "thresholds"
           },
           "mappings": [],
+          "max": 7776000,
+          "min": 0,
           "thresholds": {
             "mode": "absolute",
             "steps": [
               {
                 "color": "green",
-                "value": null
+                "value": 0
               },
               {
                 "color": "yellow",
-                "value": 1
+                "value": 604800
               },
               {
                 "color": "orange",
-                "value": 24
+                "value": 2592000
               },
               {
                 "color": "red",
-                "value": 168
+                "value": 5184000
               }
             ]
           },
-          "unit": "h"
+          "unit": "s"
         },
         "overrides": []
       },
@@ -226,581 +388,110 @@
         "h": 8,
         "w": 6,
         "x": 18,
-        "y": 0
-      },
-      "id": 3,
-      "options": {
-        "colorMode": "background",
-        "graphMode": "area",
-        "justifyMode": "auto",
-        "orientation": "auto",
-        "reduceOptions": {
-          "values": false,
-          "calcs": ["lastNotNull"],
-          "fields": ""
-        },
-        "textMode": "auto"
-      },
-      "pluginVersion": "10.0.0",
-      "targets": [
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${datasource}"
-          },
-          "editorMode": "code",
-          "expr": "histogram_quantile(0.90,\n  rate(incident_recovery_time_seconds_bucket{project=\"$project\", repository=\"$repository\", environment=\"$environment\"}[$__range])\n) / 3600",
-          "legendFormat": "MTTR (P90)",
-          "range": true,
-          "refId": "A"
-        }
-      ],
-      "title": "Mean Time to Recovery (P90)",
-      "type": "stat"
-    },
-    {
-      "datasource": {
-        "type": "prometheus",
-        "uid": "${datasource}"
-      },
-      "description": "Average time from first commit to deployment. Elite: < 1 day. High: 1 day - 1 week.",
-      "fieldConfig": {
-        "defaults": {
-          "color": {
-            "mode": "palette-classic"
-          },
-          "custom": {
-            "hideFrom": {
-              "tooltip": false,
-              "viz": false,
-              "legend": false
-            }
-          },
-          "mappings": [],
-          "unit": "h"
-        },
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 8,
-        "w": 12,
-        "x": 0,
-        "y": 8
-      },
-      "id": 4,
-      "options": {
-        "calculate": false,
-        "cellGap": 2,
-        "cellValues": {},
-        "color": {
-          "exponent": 0.5,
-          "fill": "dark-orange",
-          "mode": "scheme",
-          "reverse": false,
-          "scale": "exponential",
-          "scheme": "Spectral",
-          "steps": 128
-        },
-        "exemplars": {
-          "color": "rgba(255,0,255,0.7)"
-        },
-        "filterValues": {
-          "le": 1e-9
-        },
-        "legend": {
-          "show": true
-        },
-        "rowsFrame": {
-          "layout": "auto"
-        },
-        "tooltip": {
-          "show": true,
-          "yHistogram": false
-        },
-        "yAxis": {
-          "axisPlacement": "left",
-          "reverse": false,
-          "unit": "h"
-        }
-      },
-      "pluginVersion": "10.0.0",
-      "targets": [
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${datasource}"
-          },
-          "editorMode": "code",
-          "expr": "sum(rate(deployment_lead_time_seconds_bucket{project=\"$project\", repository=\"$repository\", environment=\"$environment\"}[$__interval])) by (le)",
-          "format": "heatmap",
-          "legendFormat": "{{le}}",
-          "range": true,
-          "refId": "A"
-        }
-      ],
-      "title": "Lead Time for Changes (Heatmap)",
-      "transformations": [
-        {
-          "id": "calculateField",
-          "options": {
-            "mode": "binary",
-            "reduce": {
-              "reducer": "sum"
-            },
-            "replaceFields": false,
-            "binary": {
-              "left": "le",
-              "operator": "/",
-              "right": "3600"
-            }
-          }
-        }
-      ],
-      "type": "heatmap"
-    },
-    {
-      "datasource": {
-        "type": "prometheus",
-        "uid": "${datasource}"
-      },
-      "description": "Average lead time over the selected time range",
-      "fieldConfig": {
-        "defaults": {
-          "color": {
-            "mode": "thresholds"
-          },
-          "mappings": [],
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": null
-              },
-              {
-                "color": "yellow",
-                "value": 24
-              },
-              {
-                "color": "orange",
-                "value": 168
-              },
-              {
-                "color": "red",
-                "value": 720
-              }
-            ]
-          },
-          "unit": "h"
-        },
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 8,
-        "w": 6,
-        "x": 12,
         "y": 8
       },
       "id": 5,
       "options": {
-        "colorMode": "background",
-        "graphMode": "area",
-        "justifyMode": "auto",
+        "minVizHeight": 75,
+        "minVizWidth": 75,
         "orientation": "auto",
         "reduceOptions": {
-          "values": false,
-          "calcs": ["lastNotNull"],
-          "fields": ""
-        },
-        "textMode": "auto"
-      },
-      "pluginVersion": "10.0.0",
-      "targets": [
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${datasource}"
-          },
-          "editorMode": "code",
-          "expr": "(\n  rate(deployment_lead_time_seconds_sum{project=\"$project\", repository=\"$repository\", environment=\"$environment\"}[$__range])\n  /\n  rate(deployment_lead_time_seconds_count{project=\"$project\", repository=\"$repository\", environment=\"$environment\"}[$__range])\n) / 3600",
-          "legendFormat": "Avg Lead Time",
-          "range": true,
-          "refId": "A"
-        }
-      ],
-      "title": "Average Lead Time",
-      "type": "stat"
-    },
-    {
-      "datasource": {
-        "type": "prometheus",
-        "uid": "${datasource}"
-      },
-      "description": "Breakdown of incidents by type (revert vs hotfix)",
-      "fieldConfig": {
-        "defaults": {
-          "color": {
-            "mode": "palette-classic"
-          },
-          "custom": {
-            "hideFrom": {
-              "tooltip": false,
-              "viz": false,
-              "legend": false
-            }
-          },
-          "mappings": []
-        },
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 8,
-        "w": 6,
-        "x": 18,
-        "y": 8
-      },
-      "id": 6,
-      "options": {
-        "displayLabels": ["percent"],
-        "legend": {
-          "displayMode": "table",
-          "placement": "bottom",
-          "showLegend": true,
-          "values": ["value", "percent"]
-        },
-        "pieType": "donut",
-        "reduceOptions": {
-          "values": false,
-          "calcs": ["lastNotNull"],
-          "fields": ""
-        },
-        "tooltip": {
-          "mode": "single",
-          "sort": "none"
-        }
-      },
-      "pluginVersion": "10.0.0",
-      "targets": [
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${datasource}"
-          },
-          "editorMode": "code",
-          "expr": "sum(increase(incident_recovery_time_seconds_count{project=\"$project\", repository=\"$repository\", environment=\"$environment\"}[$__range])) by (incident_type)",
-          "legendFormat": "{{incident_type}}",
-          "range": true,
-          "refId": "A"
-        }
-      ],
-      "title": "Incidents by Type",
-      "type": "piechart"
-    },
-    {
-      "datasource": {
-        "type": "prometheus",
-        "uid": "${datasource}"
-      },
-      "description": "Detailed table showing all DORA metrics",
-      "fieldConfig": {
-        "defaults": {
-          "color": {
-            "mode": "thresholds"
-          },
-          "custom": {
-            "align": "auto",
-            "cellOptions": {
-              "type": "auto"
-            },
-            "inspect": false
-          },
-          "mappings": [],
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": null
-              }
-            ]
-          }
-        },
-        "overrides": [
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "Deployment Frequency (per day)"
-            },
-            "properties": [
-              {
-                "id": "unit",
-                "value": "short"
-              },
-              {
-                "id": "decimals",
-                "value": 2
-              }
-            ]
-          },
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "Avg Lead Time (hours)"
-            },
-            "properties": [
-              {
-                "id": "unit",
-                "value": "h"
-              },
-              {
-                "id": "decimals",
-                "value": 1
-              }
-            ]
-          },
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "Failure Rate (%)"
-            },
-            "properties": [
-              {
-                "id": "unit",
-                "value": "percent"
-              },
-              {
-                "id": "decimals",
-                "value": 2
-              }
-            ]
-          },
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "MTTR P90 (hours)"
-            },
-            "properties": [
-              {
-                "id": "unit",
-                "value": "h"
-              },
-              {
-                "id": "decimals",
-                "value": 1
-              }
-            ]
-          }
-        ]
-      },
-      "gridPos": {
-        "h": 6,
-        "w": 24,
-        "x": 0,
-        "y": 16
-      },
-      "id": 7,
-      "options": {
-        "cellHeight": "sm",
-        "footer": {
-          "countRows": false,
+          "calcs": [
+            "lastNotNull"
+          ],
           "fields": "",
-          "reducer": ["sum"],
-          "show": false
+          "values": false
         },
-        "showHeader": true
+        "showThresholdLabels": false,
+        "showThresholdMarkers": true,
+        "sizing": "auto"
       },
-      "pluginVersion": "10.0.0",
+      "pluginVersion": "12.1.1",
       "targets": [
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "${datasource}"
+            "uid": "${DS_PROMETHEUS}"
           },
           "editorMode": "code",
-          "exemplar": false,
-          "expr": "sum(increase(deployment_total{project=\"$project\", repository=\"$repository\", environment=\"$environment\"}[$__range])) / ($__range_s / 86400)",
-          "format": "table",
+          "expr": "avg_over_time(cycle_time_seconds{project=~\"$project\", environment=~\"$environment\"}[$__range])",
           "instant": true,
-          "legendFormat": "Deployment Frequency (per day)",
-          "range": false,
+          "legendFormat": "Cycle Time",
           "refId": "A"
-        },
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${datasource}"
-          },
-          "editorMode": "code",
-          "exemplar": false,
-          "expr": "(\n  rate(deployment_lead_time_seconds_sum{project=\"$project\", repository=\"$repository\", environment=\"$environment\"}[$__range])\n  /\n  rate(deployment_lead_time_seconds_count{project=\"$project\", repository=\"$repository\", environment=\"$environment\"}[$__range])\n) / 3600",
-          "format": "table",
-          "hide": false,
-          "instant": true,
-          "legendFormat": "Avg Lead Time (hours)",
-          "range": false,
-          "refId": "B"
-        },
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${datasource}"
-          },
-          "editorMode": "code",
-          "exemplar": false,
-          "expr": "(\n  sum(rate(deployment_failures_total{project=\"$project\", repository=\"$repository\", environment=\"$environment\"}[$__range]))\n  /\n  sum(rate(deployment_total{project=\"$project\", repository=\"$repository\", environment=\"$environment\"}[$__range]))\n) * 100",
-          "format": "table",
-          "hide": false,
-          "instant": true,
-          "legendFormat": "Failure Rate (%)",
-          "range": false,
-          "refId": "C"
-        },
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${datasource}"
-          },
-          "editorMode": "code",
-          "exemplar": false,
-          "expr": "histogram_quantile(0.90,\n  rate(incident_recovery_time_seconds_bucket{project=\"$project\", repository=\"$repository\", environment=\"$environment\"}[$__range])\n) / 3600",
-          "format": "table",
-          "hide": false,
-          "instant": true,
-          "legendFormat": "MTTR P90 (hours)",
-          "range": false,
-          "refId": "D"
         }
       ],
-      "title": "DORA Metrics Summary",
-      "transformations": [
-        {
-          "id": "merge",
-          "options": {}
-        },
-        {
-          "id": "organize",
-          "options": {
-            "excludeByName": {
-              "Time": true,
-              "environment": false,
-              "project": false,
-              "repository": false
-            },
-            "indexByName": {},
-            "renameByName": {
-              "Value #A": "Deployment Frequency (per day)",
-              "Value #B": "Avg Lead Time (hours)",
-              "Value #C": "Failure Rate (%)",
-              "Value #D": "MTTR P90 (hours)"
-            }
-          }
-        }
-      ],
-      "type": "table"
+      "title": "5. Cycle Time",
+      "type": "gauge"
     }
   ],
-  "refresh": "",
-  "schemaVersion": 38,
-  "style": "dark",
-  "tags": ["dora", "metrics", "devops"],
+  "preload": false,
+  "refresh": "30s",
+  "schemaVersion": 41,
+  "tags": [
+    "dora",
+    "metrics"
+  ],
   "templating": {
     "list": [
       {
         "current": {
-          "selected": false,
-          "text": "Prometheus",
-          "value": "prometheus"
+          "text": "nevatrip-prometheus",
+          "value": "aehzw1j4v6xvkc"
         },
-        "hide": 0,
         "includeAll": false,
         "label": "Data Source",
-        "multi": false,
-        "name": "datasource",
+        "name": "DS_PROMETHEUS",
         "options": [],
         "query": "prometheus",
         "refresh": 1,
         "regex": "",
-        "skipUrlSync": false,
         "type": "datasource"
       },
       {
         "current": {
-          "selected": false,
           "text": "All",
           "value": "$__all"
         },
         "datasource": {
           "type": "prometheus",
-          "uid": "${datasource}"
+          "uid": "${DS_PROMETHEUS}"
         },
-        "definition": "label_values(deployment_total, project)",
-        "hide": 0,
+        "definition": "label_values(deployment_created_seconds, project)",
         "includeAll": true,
         "label": "Project",
-        "multi": false,
+        "multi": true,
         "name": "project",
         "options": [],
         "query": {
-          "query": "label_values(deployment_total, project)",
+          "query": "label_values(deployment_created_seconds, project)",
           "refId": "PrometheusVariableQueryEditor-VariableQuery"
         },
         "refresh": 2,
         "regex": "",
-        "skipUrlSync": false,
         "sort": 1,
         "type": "query"
       },
       {
         "current": {
-          "selected": false,
           "text": "All",
           "value": "$__all"
         },
         "datasource": {
           "type": "prometheus",
-          "uid": "${datasource}"
+          "uid": "${DS_PROMETHEUS}"
         },
-        "definition": "label_values(deployment_total{project=\"$project\"}, repository)",
-        "hide": 0,
+        "definition": "label_values(deployment_created_seconds{project=~\"$project\"}, environment)",
         "includeAll": true,
-        "label": "Repository",
-        "multi": false,
-        "name": "repository",
-        "options": [],
-        "query": {
-          "query": "label_values(deployment_total{project=\"$project\"}, repository)",
-          "refId": "PrometheusVariableQueryEditor-VariableQuery"
-        },
-        "refresh": 2,
-        "regex": "",
-        "skipUrlSync": false,
-        "sort": 1,
-        "type": "query"
-      },
-      {
-        "current": {
-          "selected": false,
-          "text": "production",
-          "value": "production"
-        },
-        "datasource": {
-          "type": "prometheus",
-          "uid": "${datasource}"
-        },
-        "definition": "label_values(deployment_total{project=\"$project\", repository=\"$repository\"}, environment)",
-        "hide": 0,
-        "includeAll": false,
         "label": "Environment",
-        "multi": false,
+        "multi": true,
         "name": "environment",
         "options": [],
         "query": {
-          "query": "label_values(deployment_total{project=\"$project\", repository=\"$repository\"}, environment)",
+          "query": "label_values(deployment_created_seconds{project=~\"$project\"}, environment)",
           "refId": "PrometheusVariableQueryEditor-VariableQuery"
         },
         "refresh": 2,
         "regex": "",
-        "skipUrlSync": false,
         "sort": 1,
         "type": "query"
       }
@@ -812,8 +503,7 @@
   },
   "timepicker": {},
   "timezone": "",
-  "title": "DORA Metrics - Changelog Notifier",
-  "uid": "dora-metrics-changelog",
-  "version": 1,
-  "weekStart": ""
+  "title": "DORA Metrics",
+  "uid": "dora-metrics-final",
+  "version": 2
 }
