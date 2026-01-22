@@ -1,4 +1,4 @@
-const { isRevertCommit, isHotfixDeployment, extractIncidentType } = require('./detectors');
+const { isRevertCommit, isHotfixDeployment, extractIncidentType } = require('../src/detectors');
 
 describe('isRevertCommit', () => {
   test('returns false for null/empty message', () => {

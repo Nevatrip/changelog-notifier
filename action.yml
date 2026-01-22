@@ -28,17 +28,17 @@ inputs:
   yougile_api_key:
     description: "YouGile API key"
     required: true
-  pushgateway_url:
-    description: "Prometheus Pushgateway URL (e.g., http://pushgateway:9091). If not provided, metrics are skipped."
+  influxdb_url:
+    description: "InfluxDB URL (e.g., http://influxdb:8181). If not provided, metrics are skipped."
     required: false
+  influxdb_bucket:
+    description: "InfluxDB bucket name"
+    required: false
+    default: "default"
   environment:
     description: "Deployment environment (used as metric label)"
     required: false
     default: "production"
-  metrics_job_name:
-    description: "Prometheus job name for DORA metrics"
-    required: false
-    default: "dora_metrics"
   github_token:
     description: "GitHub token for API access (calculating lead times). If not provided, defaults to GITHUB_TOKEN environment variable."
     required: false

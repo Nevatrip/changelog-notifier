@@ -18,14 +18,13 @@
   "editable": true,
   "fiscalYearStartMonth": 0,
   "graphTooltip": 0,
-  "id": 67,
+  "id": 0,
   "links": [],
-  "liveNow": true,
   "panels": [
     {
       "datasource": {
-        "type": "prometheus",
-        "uid": "${DS_PROMETHEUS}"
+        "type": "influxdb",
+        "uid": "${DS_INFLUXDB}"
       },
       "fieldConfig": {
         "defaults": {
@@ -36,7 +35,7 @@
             "axisBorderShow": false,
             "axisCenteredZero": false,
             "axisColorMode": "text",
-            "axisLabel": "Deployments",
+            "axisLabel": "",
             "axisPlacement": "auto",
             "barAlignment": 0,
             "barWidthFactor": 0.6,
@@ -55,11 +54,12 @@
             "scaleDistribution": {
               "type": "linear"
             },
-            "showPoints": "never",
+            "showPoints": "auto",
+            "showValues": false,
             "spanNulls": false,
             "stacking": {
               "group": "A",
-              "mode": "normal"
+              "mode": "none"
             },
             "thresholdsStyle": {
               "mode": "off"
@@ -88,37 +88,39 @@
       "id": 1,
       "options": {
         "legend": {
-          "calcs": ["sum"],
-          "displayMode": "table",
+          "calcs": [
+            "sum"
+          ],
+          "displayMode": "list",
           "placement": "bottom",
           "showLegend": true
         },
         "tooltip": {
-          "mode": "multi",
+          "hideZeros": false,
+          "mode": "single",
           "sort": "none"
         }
       },
-      "pluginVersion": "12.1.1",
+      "pluginVersion": "12.3.1",
       "targets": [
         {
           "datasource": {
-            "type": "prometheus",
-            "uid": "${DS_PROMETHEUS}"
+            "type": "influxdb",
+            "uid": "${DS_INFLUXDB}"
           },
-          "editorMode": "code",
-          "expr": "dora:deployment_count:total{project=~\"$project\", environment=~\"$environment\"}",
-          "instant": false,
-          "legendFormat": "{{project}} ({{environment}})",
-          "refId": "A"
+          "query": "SELECT SUM(\"count\") \nFROM \"deployment\" \nWHERE \"project\" =~ /^${project:regex}$/ \nAND \"has_task\" =~ /^${has_task:regex}$/ \nAND $timeFilter \nGROUP BY time(1d) fill(0)",
+          "rawQuery": true,
+          "refId": "A",
+          "resultFormat": "time_series"
         }
       ],
-      "title": "1. Частота развертываний (Deployment Frequency)",
+      "title": "Deployment Frequency (Daily)",
       "type": "timeseries"
     },
     {
       "datasource": {
-        "type": "prometheus",
-        "uid": "${DS_PROMETHEUS}"
+        "type": "influxdb",
+        "uid": "${DS_INFLUXDB}"
       },
       "fieldConfig": {
         "defaults": {
@@ -126,8 +128,6 @@
             "mode": "thresholds"
           },
           "mappings": [],
-          "max": 604800,
-          "min": 0,
           "thresholds": {
             "mode": "absolute",
             "steps": [
@@ -140,12 +140,8 @@
                 "value": 3600
               },
               {
-                "color": "orange",
-                "value": 86400
-              },
-              {
                 "color": "red",
-                "value": 604800
+                "value": 86400
               }
             ]
           },
@@ -154,57 +150,57 @@
         "overrides": []
       },
       "gridPos": {
-        "h": 8,
+        "h": 6,
         "w": 6,
         "x": 0,
         "y": 8
       },
       "id": 2,
       "options": {
-        "minVizHeight": 75,
-        "minVizWidth": 75,
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
         "orientation": "auto",
+        "percentChangeColorMode": "standard",
         "reduceOptions": {
           "calcs": [
-            "lastNotNull"
+            "mean"
           ],
           "fields": "",
           "values": false
         },
-        "showThresholdLabels": false,
-        "showThresholdMarkers": true,
-        "sizing": "auto"
+        "showPercentChange": false,
+        "textMode": "auto",
+        "wideLayout": true
       },
-      "pluginVersion": "12.1.1",
+      "pluginVersion": "12.3.1",
       "targets": [
         {
           "datasource": {
-            "type": "prometheus",
-            "uid": "${DS_PROMETHEUS}"
+            "type": "influxdb",
+            "uid": "${DS_INFLUXDB}"
           },
-          "editorMode": "code",
-          "expr": "avg by (project, environment) (deployment_lead_time_seconds{job=\"dora_metrics\", project=~\"$project\", environment=~\"$environment\"})",
-          "instant": true,
-          "legendFormat": "Lead Time",
-          "refId": "A"
+          "query": "SELECT MEDIAN(\"seconds\") \nFROM \"lead_time\" \nWHERE \"project\" =~ /^${project:regex}$/ \nAND \"has_task\" =~ /^${has_task:regex}$/ \nAND $timeFilter \nGROUP BY time($__interval) fill(null)",
+          "rawQuery": true,
+          "refId": "A",
+          "resultFormat": "time_series"
         }
       ],
-      "title": "2. Время выхода изменений (Lead Time)",
-      "type": "gauge"
+      "title": "Lead Time (Median)",
+      "type": "stat"
     },
     {
       "datasource": {
-        "type": "prometheus",
-        "uid": "${DS_PROMETHEUS}"
+        "type": "influxdb",
+        "uid": "${DS_INFLUXDB}"
       },
+      "description": "Mean Time To Recovery",
       "fieldConfig": {
         "defaults": {
           "color": {
             "mode": "thresholds"
           },
           "mappings": [],
-          "max": 86400,
-          "min": 0,
           "thresholds": {
             "mode": "absolute",
             "steps": [
@@ -214,11 +210,7 @@
               },
               {
                 "color": "yellow",
-                "value": 3600
-              },
-              {
-                "color": "orange",
-                "value": 14400
+                "value": 1800
               },
               {
                 "color": "red",
@@ -231,48 +223,49 @@
         "overrides": []
       },
       "gridPos": {
-        "h": 8,
+        "h": 6,
         "w": 6,
         "x": 6,
         "y": 8
       },
       "id": 3,
       "options": {
-        "minVizHeight": 75,
-        "minVizWidth": 75,
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
         "orientation": "auto",
+        "percentChangeColorMode": "standard",
         "reduceOptions": {
           "calcs": [
-            "lastNotNull"
+            "mean"
           ],
           "fields": "",
           "values": false
         },
-        "showThresholdLabels": false,
-        "showThresholdMarkers": true,
-        "sizing": "auto"
+        "showPercentChange": false,
+        "textMode": "auto",
+        "wideLayout": true
       },
-      "pluginVersion": "12.1.1",
+      "pluginVersion": "12.3.1",
       "targets": [
         {
           "datasource": {
-            "type": "prometheus",
-            "uid": "${DS_PROMETHEUS}"
+            "type": "influxdb",
+            "uid": "${DS_INFLUXDB}"
           },
-          "editorMode": "code",
-          "expr": "avg by (project, environment) (incident_recovery_time_seconds{job=\"dora_metrics\", project=~\"$project\", environment=~\"$environment\"})",
-          "instant": true,
-          "legendFormat": "MTTR",
-          "refId": "A"
+          "query": "SELECT MEDIAN(\"seconds\") \nFROM \"mttr\" \nWHERE \"project\" =~ /^${project:regex}$/ \nAND \"has_task\" =~ /^${has_task:regex}$/ \nAND $timeFilter \nGROUP BY time($__interval) fill(null)",
+          "rawQuery": true,
+          "refId": "A",
+          "resultFormat": "time_series"
         }
       ],
-      "title": "3. Время восстановления (MTTR)",
-      "type": "gauge"
+      "title": "MTTR (Median)",
+      "type": "stat"
     },
     {
       "datasource": {
-        "type": "prometheus",
-        "uid": "${DS_PROMETHEUS}"
+        "type": "influxdb",
+        "uid": "${DS_INFLUXDB}"
       },
       "fieldConfig": {
         "defaults": {
@@ -291,15 +284,11 @@
               },
               {
                 "color": "yellow",
-                "value": 15
-              },
-              {
-                "color": "orange",
-                "value": 30
+                "value": 10
               },
               {
                 "color": "red",
-                "value": 45
+                "value": 25
               }
             ]
           },
@@ -308,16 +297,18 @@
         "overrides": []
       },
       "gridPos": {
-        "h": 8,
+        "h": 6,
         "w": 6,
         "x": 12,
         "y": 8
       },
       "id": 4,
       "options": {
-        "minVizHeight": 75,
-        "minVizWidth": 75,
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
         "orientation": "auto",
+        "percentChangeColorMode": "standard",
         "reduceOptions": {
           "calcs": [
             "lastNotNull"
@@ -325,31 +316,117 @@
           "fields": "",
           "values": false
         },
-        "showThresholdLabels": false,
-        "showThresholdMarkers": true,
-        "sizing": "auto"
+        "showPercentChange": false,
+        "textMode": "auto",
+        "wideLayout": true
       },
-      "pluginVersion": "12.1.1",
+      "pluginVersion": "12.3.1",
       "targets": [
         {
           "datasource": {
-            "type": "prometheus",
-            "uid": "${DS_PROMETHEUS}"
+            "type": "influxdb",
+            "uid": "${DS_INFLUXDB}"
           },
-          "editorMode": "code",
-          "expr": "(count(deployment_failure_created_seconds{job=\"dora_metrics\", project=~\"$project\", environment=~\"$environment\"}) / clamp_min(count(deployment_created_seconds{job=\"dora_metrics\", project=~\"$project\", environment=~\"$environment\"}), 1)) * 100",
-          "instant": true,
-          "legendFormat": "Failure Rate",
-          "refId": "A"
+          "hide": true,
+          "query": "SELECT count(\"count\") \nFROM \"deployment_failure\" \nWHERE \"project\" =~ /^${project:regex}$/ \nAND \"has_task\" =~ /^${has_task:regex}$/ \nAND $timeFilter",
+          "rawQuery": true,
+          "refId": "failures",
+          "resultFormat": "time_series"
+        },
+        {
+          "datasource": {
+            "type": "influxdb",
+            "uid": "${DS_INFLUXDB}"
+          },
+          "hide": true,
+          "query": "SELECT count(\"count\") \nFROM \"deployment\" \nWHERE \"project\" =~ /^${project:regex}$/ \nAND \"has_task\" =~ /^${has_task:regex}$/ \nAND $timeFilter",
+          "rawQuery": true,
+          "refId": "total",
+          "resultFormat": "time_series"
+        },
+        {
+          "datasource": {
+            "name": "Expression",
+            "type": "__expr__",
+            "uid": "__expr__"
+          },
+          "expression": "($failures / $total)*100",
+          "hide": false,
+          "refId": "A",
+          "type": "math"
         }
       ],
-      "title": "4. Процент неудачных изменений (Change Failure Rate)",
-      "type": "gauge"
+      "title": "Change Failure Rate",
+      "transformations": [
+        {
+          "id": "calculateField",
+          "options": {
+            "alias": "Rate",
+            "binary": {
+              "left": {
+                "matcher": {
+                  "id": "byName",
+                  "options": "failures"
+                }
+              },
+              "operator": "/",
+              "right": {
+                "matcher": {
+                  "id": "byName",
+                  "options": "total"
+                }
+              }
+            },
+            "mode": "binary",
+            "reduce": {
+              "reducer": "sum"
+            },
+            "replaceFields": false
+          }
+        },
+        {
+          "id": "calculateField",
+          "options": {
+            "alias": "CFR %",
+            "binary": {
+              "left": {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Rate"
+                }
+              },
+              "operator": "*",
+              "right": {
+                "fixed": "100"
+              }
+            },
+            "mode": "binary",
+            "reduce": {
+              "reducer": "sum"
+            }
+          }
+        },
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Rate": true,
+              "failures": true,
+              "total": true
+            },
+            "includeByName": {},
+            "indexByName": {},
+            "orderByMode": "manual",
+            "renameByName": {}
+          }
+        }
+      ],
+      "type": "stat"
     },
     {
       "datasource": {
-        "type": "prometheus",
-        "uid": "${DS_PROMETHEUS}"
+        "type": "influxdb",
+        "uid": "${DS_INFLUXDB}"
       },
       "fieldConfig": {
         "defaults": {
@@ -357,8 +434,6 @@
             "mode": "thresholds"
           },
           "mappings": [],
-          "max": 7776000,
-          "min": 0,
           "thresholds": {
             "mode": "absolute",
             "steps": [
@@ -371,12 +446,8 @@
                 "value": 604800
               },
               {
-                "color": "orange",
-                "value": 2592000
-              },
-              {
                 "color": "red",
-                "value": 5184000
+                "value": 2592000
               }
             ]
           },
@@ -385,48 +456,49 @@
         "overrides": []
       },
       "gridPos": {
-        "h": 8,
+        "h": 6,
         "w": 6,
         "x": 18,
         "y": 8
       },
       "id": 5,
       "options": {
-        "minVizHeight": 75,
-        "minVizWidth": 75,
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
         "orientation": "auto",
+        "percentChangeColorMode": "standard",
         "reduceOptions": {
           "calcs": [
-            "lastNotNull"
+            "mean"
           ],
           "fields": "",
           "values": false
         },
-        "showThresholdLabels": false,
-        "showThresholdMarkers": true,
-        "sizing": "auto"
+        "showPercentChange": false,
+        "textMode": "auto",
+        "wideLayout": true
       },
-      "pluginVersion": "12.1.1",
+      "pluginVersion": "12.3.1",
       "targets": [
         {
           "datasource": {
-            "type": "prometheus",
-            "uid": "${DS_PROMETHEUS}"
+            "type": "influxdb",
+            "uid": "${DS_INFLUXDB}"
           },
-          "editorMode": "code",
-          "expr": "avg_over_time(cycle_time_seconds{project=~\"$project\", environment=~\"$environment\"}[$__range])",
-          "instant": true,
-          "legendFormat": "Cycle Time",
-          "refId": "A"
+          "query": "SELECT MEDIAN(\"seconds\") \nFROM \"cycle_time\" \nWHERE \"project\" =~ /^${project:regex}$/ \nAND \"has_task\" =~ /^${has_task:regex}$/ \nAND $timeFilter \nGROUP BY time($__interval) fill(null)",
+          "rawQuery": true,
+          "refId": "A",
+          "resultFormat": "time_series"
         }
       ],
-      "title": "5. Cycle Time",
-      "type": "gauge"
+      "title": "Cycle Time (Median)",
+      "type": "stat"
     }
   ],
   "preload": false,
-  "refresh": "30s",
-  "schemaVersion": 41,
+  "refresh": "5m",
+  "schemaVersion": 42,
   "tags": [
     "dora",
     "metrics"
@@ -435,65 +507,60 @@
     "list": [
       {
         "current": {
-          "text": "nevatrip-prometheus",
-          "value": "aehzw1j4v6xvkc"
+          "text": "influxdb",
+          "value": "cfaz38z0mj6yoe"
         },
         "includeAll": false,
-        "label": "Data Source",
-        "name": "DS_PROMETHEUS",
+        "label": "Datasource",
+        "name": "DS_INFLUXDB",
         "options": [],
-        "query": "prometheus",
+        "query": "influxdb",
         "refresh": 1,
-        "regex": "",
         "type": "datasource"
       },
       {
+        "allValue": ".*",
         "current": {
           "text": "All",
           "value": "$__all"
         },
         "datasource": {
-          "type": "prometheus",
-          "uid": "${DS_PROMETHEUS}"
+          "type": "influxdb",
+          "uid": "${DS_INFLUXDB}"
         },
-        "definition": "label_values(deployment_created_seconds, project)",
         "includeAll": true,
         "label": "Project",
-        "multi": true,
         "name": "project",
         "options": [],
-        "query": {
-          "query": "label_values(deployment_created_seconds, project)",
-          "refId": "PrometheusVariableQueryEditor-VariableQuery"
-        },
-        "refresh": 2,
+        "query": "SHOW TAG VALUES FROM deployment WITH KEY = \"project\"",
+        "refresh": 1,
         "regex": "",
         "sort": 1,
         "type": "query"
       },
       {
+        "allValue": ".*",
         "current": {
-          "text": "All",
+          "text": "$__all",
           "value": "$__all"
         },
-        "datasource": {
-          "type": "prometheus",
-          "uid": "${DS_PROMETHEUS}"
-        },
-        "definition": "label_values(deployment_created_seconds{project=~\"$project\"}, environment)",
         "includeAll": true,
-        "label": "Environment",
-        "multi": true,
-        "name": "environment",
-        "options": [],
-        "query": {
-          "query": "label_values(deployment_created_seconds{project=~\"$project\"}, environment)",
-          "refId": "PrometheusVariableQueryEditor-VariableQuery"
-        },
-        "refresh": 2,
-        "regex": "",
-        "sort": 1,
-        "type": "query"
+        "label": "Has Task",
+        "name": "has_task",
+        "options": [
+          {
+            "selected": false,
+            "text": "yes",
+            "value": "yes"
+          },
+          {
+            "selected": false,
+            "text": "no",
+            "value": "no"
+          }
+        ],
+        "query": "yes,no",
+        "type": "custom"
       }
     ]
   },
@@ -503,7 +570,7 @@
   },
   "timepicker": {},
   "timezone": "",
-  "title": "DORA Metrics",
-  "uid": "dora-metrics-final",
+  "title": "DORA",
+  "uid": "dora-metrics-simple-gem",
   "version": 2
 }

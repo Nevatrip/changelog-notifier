@@ -1,12 +1,12 @@
 /**
  * DORA Metrics Module
- * Calculates and exports DORA metrics to Prometheus Pushgateway
+ * Calculates and exports DORA metrics to InfluxDB
  */
 
 const core = require('@actions/core');
 const github = require('@actions/github');
-const { Gauge, Registry } = require('prom-client');
 const { isRevertCommit, isHotfixDeployment, extractIncidentType } = require('./detectors');
+const { hasTaskId, TASK_ID_PATTERN } = require('./parsing');
 
 // Constants
 const MAX_LEAD_TIME_DAYS = 30; // Filter outliers
@@ -15,25 +15,15 @@ const RETRY_ATTEMPTS = 3;
 const RETRY_DELAY_MS = 1000;
 
 /**
- * Check if commit message contains a task ID
- * @param {string} message - Commit message
- * @returns {boolean} - True if task ID found
- */
-function hasTaskId(message) {
-  const taskIdPattern = /[A-Z]+-\d+/;
-  return taskIdPattern.test(message);
-}
-
-/**
  * Main entry point for recording and pushing DORA metrics
  * @param {Object} config - Configuration object
  * @param {Array} config.commits - Array of commit objects
  * @param {string} config.ref - Git ref (e.g., refs/heads/main)
  * @param {string} config.projectName - Project name
  * @param {string} config.repository - Repository name
- * @param {string} config.pushgatewayUrl - Pushgateway URL
+ * @param {string} config.influxdbUrl - InfluxDB URL (e.g., http://localhost:8181)
+ * @param {string} config.influxdbBucket - InfluxDB bucket name (default: default)
  * @param {string} config.environment - Deployment environment (default: production)
- * @param {string} config.jobName - Prometheus job name (default: dora_metrics)
  * @param {string} config.githubToken - GitHub token for API access
  * @param {Object} config.yogileInstance - YouGile API instance (optional, for Cycle Time)
  */
@@ -53,61 +43,28 @@ async function recordAndPushMetrics(config) {
     return;
   }
 
-  // Create a new registry for this metrics push
-  const registry = new Registry();
+  const timestamp = Date.now() * 1000000; // nanoseconds for InfluxDB
+  const hasTask = commits.some(commit => hasTaskId(commit.message));
 
-  // Define metrics (Using Gauges for Pushgateway compatibility)
-  // Instead of Counters (which reset on every run), we use Timestamps.
-  // Prometheus query: changes(deployment_created_seconds[1d]) -> Count of deployments
-  const deploymentTimestamp = new Gauge({
-    name: 'deployment_created_seconds',
-    help: 'Timestamp of the deployment. Use changes() to count deployments.',
-    labelNames: ['project', 'repository', 'environment', 'has_task'],
-    registers: [registry]
-  });
+  // Common tags for all metrics
+  const tags = {
+    project: projectName,
+    repository,
+    environment,
+    has_task: hasTask ? 'yes' : 'no'
+  };
 
-  const leadTimeGauge = new Gauge({
-    name: 'deployment_lead_time_seconds',
-    help: 'Mean lead time from commit to deployment in seconds',
-    labelNames: ['project', 'repository', 'environment', 'has_task'],
-    registers: [registry]
-  });
+  const metrics = [];
 
-  const failureTimestamp = new Gauge({
-    name: 'deployment_failure_created_seconds',
-    help: 'Timestamp of the failed deployment. Use changes() to count failures.',
-    labelNames: ['project', 'repository', 'environment', 'has_task'],
-    registers: [registry]
-  });
-
-  const mttrGauge = new Gauge({
-    name: 'incident_recovery_time_seconds',
-    help: 'Time to recover from incidents in seconds',
-    labelNames: ['project', 'repository', 'environment', 'incident_type', 'has_task'],
-    registers: [registry]
-  });
-
-  const cycleTimeGauge = new Gauge({
-    name: 'cycle_time_seconds',
-    help: 'Mean cycle time from task creation to deployment in seconds',
-    labelNames: ['project', 'repository', 'environment', 'has_task'],
-    registers: [registry]
-  });
-
-  // Determine if deployment has commits with tasks
-  const deploymentHasTask = commits.some(commit => hasTaskId(commit.message));
-  const baseLabels = { project: projectName, repository, environment };
-  const labels = { ...baseLabels, has_task: deploymentHasTask.toString() };
-
-  // 1. Record deployment timestamp
-  deploymentTimestamp.set(labels, Math.floor(Date.now() / 1000));
-  core.info(`Recorded deployment timestamp for ${projectName} in ${environment}`);
+  // 1. Record deployment (for Deployment Frequency)
+  metrics.push(createLineProtocol('deployment', tags, { count: 1 }, timestamp));
+  core.info(`Recorded deployment for ${projectName} in ${environment}`);
 
   // 2. Calculate and record Lead Time
   try {
     const avgLeadTime = await calculateLeadTimes(commits, githubToken);
     if (avgLeadTime !== null) {
-      leadTimeGauge.set(labels, avgLeadTime);
+      metrics.push(createLineProtocol('lead_time', tags, { seconds: avgLeadTime }, timestamp));
     }
   } catch (error) {
     core.warning(`Failed to calculate lead times: ${error.message}`);
@@ -118,17 +75,17 @@ async function recordAndPushMetrics(config) {
     try {
       const avgCycleTime = await calculateCycleTimes(commits, yogileInstance);
       if (avgCycleTime !== null) {
-        cycleTimeGauge.set(labels, avgCycleTime);
+        metrics.push(createLineProtocol('cycle_time', tags, { seconds: avgCycleTime }, timestamp));
       }
     } catch (error) {
       core.warning(`Failed to calculate cycle times: ${error.message}`);
     }
   }
 
-  // 4. Detect failures
+  // 4. Detect failures (for Change Failure Rate)
   const hasFailure = detectFailures(commits, ref);
   if (hasFailure) {
-    failureTimestamp.set(labels, Math.floor(Date.now() / 1000));
+    metrics.push(createLineProtocol('deployment_failure', tags, { count: 1 }, timestamp));
     core.info('Detected deployment failure (revert or hotfix detected)');
   }
 
@@ -136,18 +93,114 @@ async function recordAndPushMetrics(config) {
   try {
     const recoveryTime = await calculateMTTR(commits, ref);
     if (recoveryTime !== null) {
-      // Determine incident type for label
       const hasRevertCommit = commits.some(commit => extractIncidentType(commit.message, ref) === 'revert');
       const incidentType = hasRevertCommit ? 'revert' : (extractIncidentType('', ref) === 'hotfix' ? 'hotfix' : 'unknown');
 
-      mttrGauge.set({ ...labels, incident_type: incidentType }, recoveryTime);
+      const mttrTags = { ...tags, incident_type: incidentType };
+      metrics.push(createLineProtocol('mttr', mttrTags, { seconds: recoveryTime }, timestamp));
     }
   } catch (error) {
     core.warning(`Failed to calculate MTTR: ${error.message}`);
   }
 
-  // 6. Push metrics to Pushgateway
-  await pushWithRetry(registry, config, RETRY_ATTEMPTS);
+  // 6. Push metrics to InfluxDB
+  if (metrics.length > 0) {
+    await pushWithRetry(metrics, config, RETRY_ATTEMPTS);
+  }
+}
+
+/**
+ * Create InfluxDB line protocol string
+ * @param {string} measurement - Measurement name
+ * @param {Object} tags - Tags object
+ * @param {Object} fields - Fields object
+ * @param {number} timestamp - Timestamp in nanoseconds
+ * @returns {string} - Line protocol string
+ */
+function createLineProtocol(measurement, tags, fields, timestamp) {
+  const tagStr = Object.entries(tags)
+    .map(([k, v]) => `${escapeTag(k)}=${escapeTag(String(v))}`)
+    .join(',');
+
+  const fieldStr = Object.entries(fields)
+    .map(([k, v]) => `${escapeTag(k)}=${formatFieldValue(v)}`)
+    .join(',');
+
+  return `${measurement},${tagStr} ${fieldStr} ${timestamp}`;
+}
+
+/**
+ * Escape special characters for InfluxDB line protocol tags
+ * @param {string} str - String to escape
+ * @returns {string} - Escaped string
+ */
+function escapeTag(str) {
+  return str.replace(/[,= ]/g, '\\$&');
+}
+
+/**
+ * Format field value for InfluxDB line protocol
+ * @param {*} value - Value to format
+ * @returns {string} - Formatted value
+ */
+function formatFieldValue(value) {
+  if (typeof value === 'number') {
+    return Number.isInteger(value) ? `${value}i` : value.toString();
+  }
+  if (typeof value === 'boolean') {
+    return value.toString();
+  }
+  return `"${String(value).replace(/"/g, '\\"')}"`;
+}
+
+/**
+ * Get PR information for a commit
+ * @param {string} commitSha - Commit SHA
+ * @param {Object} octokit - GitHub API client
+ * @param {string} owner - Repository owner
+ * @param {string} repo - Repository name
+ * @returns {Promise<Object|null>} - PR object or null
+ */
+async function getPRInfo(commitSha, octokit, owner, repo) {
+  try {
+    const { data: pulls } = await octokit.rest.repos.listPullRequestsAssociatedWithCommit({
+      owner,
+      repo,
+      commit_sha: commitSha
+    });
+    return pulls && pulls.length > 0 ? pulls[0] : null;
+  } catch (error) {
+    core.warning(`GitHub API error getting PR for commit ${commitSha}: ${error.message}`);
+    return null;
+  }
+}
+
+/**
+ * Get first commit time from a PR
+ * @param {Object} pr - PR object
+ * @param {Object} octokit - GitHub API client
+ * @param {string} owner - Repository owner
+ * @param {string} repo - Repository name
+ * @returns {Promise<Date|null>} - First commit time or null
+ */
+async function getFirstCommitTime(pr, octokit, owner, repo) {
+  try {
+    const { data: prCommits } = await octokit.rest.pulls.listCommits({
+      owner,
+      repo,
+      pull_number: pr.number,
+      per_page: 100
+    });
+
+    if (prCommits && prCommits.length > 0) {
+      const firstCommit = prCommits[0];
+      return new Date(firstCommit.commit.author.date || firstCommit.commit.committer.date);
+    }
+    return null;
+  } catch (error) {
+    core.warning(`Failed to get PR commits for #${pr.number}: ${error.message}`);
+    return null;
+  }
 }
 
 /**
@@ -169,52 +222,27 @@ async function calculateLeadTimes(commits, githubToken) {
 
   for (const commit of commits) {
     try {
-      let commitTime;
       const commitSha = (commit.sha || commit.id)?.substring(0, 7);
+      const fullCommitSha = commit.sha || commit.id;
 
-      // Try to get PR information for this commit
-      try {
-        const { data: pulls } = await octokit.rest.repos.listPullRequestsAssociatedWithCommit({
-          owner,
-          repo,
-          commit_sha: commit.sha || commit.id
-        });
+      // Get PR information for this commit
+      const pr = await getPRInfo(fullCommitSha, octokit, owner, repo);
 
-        if (pulls && pulls.length > 0) {
-          const pr = pulls[0];
-
-          // Get first commit in PR
-          try {
-            const { data: prCommits } = await octokit.rest.pulls.listCommits({
-              owner,
-              repo,
-              pull_number: pr.number,
-              per_page: 100
-            });
-
-            if (prCommits && prCommits.length > 0) {
-              // First commit in the PR
-              const firstCommit = prCommits[0];
-              commitTime = new Date(firstCommit.commit.author.date || firstCommit.commit.committer.date);
-              core.info(`Commit ${commitSha} linked to PR #${pr.number}, first commit at ${commitTime.toISOString()}`);
-            } else {
-              // Fallback to current commit timestamp
-              commitTime = new Date(commit.timestamp);
-              core.info(`PR #${pr.number} has no commits, using commit timestamp`);
-            }
-          } catch (prError) {
-            core.warning(`Failed to get PR commits for #${pr.number}: ${prError.message}, using commit timestamp`);
-            commitTime = new Date(commit.timestamp);
-          }
+      let commitTime;
+      if (pr) {
+        // Get first commit time from PR
+        commitTime = await getFirstCommitTime(pr, octokit, owner, repo);
+        if (commitTime) {
+          core.info(`Commit ${commitSha} linked to PR #${pr.number}, first commit at ${commitTime.toISOString()}`);
         } else {
-          // Fallback: use commit timestamp
+          // Fallback to current commit timestamp
           commitTime = new Date(commit.timestamp);
-          core.info(`Commit ${commitSha} has no associated PR, using commit timestamp`);
+          core.info(`PR #${pr.number} has no commits, using commit timestamp`);
         }
-      } catch (apiError) {
-        // GitHub API rate limit or other error - use commit timestamp as fallback
-        core.warning(`GitHub API error for commit ${commitSha}: ${apiError.message}`);
+      } else {
+        // No PR found, use commit timestamp
         commitTime = new Date(commit.timestamp);
+        core.info(`Commit ${commitSha} has no associated PR, using commit timestamp`);
       }
 
       // Calculate lead time in seconds
@@ -270,7 +298,7 @@ async function calculateCycleTimes(commits, yogileInstance) {
   for (const commit of commits) {
     try {
       // Extract task ID from commit message (format: TECH-XXXX)
-      const taskIdMatch = commit.message.match(/([A-Z]+-\d+)/);
+      const taskIdMatch = commit.message.match(TASK_ID_PATTERN);
       if (!taskIdMatch) {
         continue; // Skip commits without task ID
       }
@@ -376,16 +404,16 @@ function detectFailures(commits, ref) {
 }
 
 /**
- * Push metrics to Pushgateway with retry logic
- * @param {Registry} registry - Prometheus registry
+ * Push metrics to InfluxDB with retry logic
+ * @param {Array} metrics - Array of line protocol strings
  * @param {Object} config - Configuration object
  * @param {number} maxRetries - Maximum number of retry attempts
  */
-async function pushWithRetry(registry, config, maxRetries) {
+async function pushWithRetry(metrics, config, maxRetries) {
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
     try {
-      await pushMetricsToPushgateway(registry, config);
-      core.info('Successfully pushed DORA metrics to Pushgateway');
+      await pushMetricsToInfluxDB(metrics, config);
+      core.info('Successfully pushed DORA metrics to InfluxDB');
       return;
     } catch (error) {
       if (attempt === maxRetries) {
@@ -399,29 +427,22 @@ async function pushWithRetry(registry, config, maxRetries) {
 }
 
 /**
- * Push metrics to Prometheus Pushgateway
- * @param {Registry} registry - Prometheus registry
+ * Push metrics to InfluxDB
+ * @param {Array} metrics - Array of line protocol strings
  * @param {Object} config - Configuration object
  */
-async function pushMetricsToPushgateway(registry, config) {
-  const { pushgatewayUrl, jobName, repository, projectName, environment = 'production' } = config;
+async function pushMetricsToInfluxDB(metrics, config) {
+  const { influxdbUrl, influxdbBucket = 'default' } = config;
 
-  // Generate unique deployment ID to preserve history in Pushgateway
-  const deploymentId = Math.floor(Date.now() / 1000).toString();
-
-  // Construct Pushgateway URL with grouping keys
-  // Adding deployment_id ensures each deployment creates a separate metric group
-  // This allows count() queries to work correctly for deployment frequency
-  const url = `${pushgatewayUrl}/metrics/job/${encodeURIComponent(jobName)}/project/${encodeURIComponent(projectName)}/repository/${encodeURIComponent(repository)}/environment/${encodeURIComponent(environment)}/deployment_id/${deploymentId}`;
-
-  const metrics = await registry.metrics();
+  const url = `${influxdbUrl}/write?db=${encodeURIComponent(influxdbBucket)}&precision=ns`;
+  const body = metrics.join('\n');
 
   const response = await fetch(url, {
     method: 'POST',
     headers: {
-      'Content-Type': 'text/plain; version=0.0.4'
+      'Content-Type': 'text/plain; charset=utf-8'
     },
-    body: metrics
+    body
   });
 
   if (!response.ok) {
@@ -429,7 +450,7 @@ async function pushMetricsToPushgateway(registry, config) {
     throw new Error(`HTTP ${response.status}: ${errorText}`);
   }
 
-  core.info(`Pushed metrics to ${url}`);
+  core.info(`Pushed ${metrics.length} metrics to ${url}`);
 }
 
 /**
@@ -445,5 +466,13 @@ module.exports = {
   calculateLeadTimes,
   calculateCycleTimes,
   calculateMTTR,
-  detectFailures
+  detectFailures,
+  createLineProtocol,
+  escapeTag,
+  formatFieldValue,
+  // Export constants for testing
+  MAX_LEAD_TIME_DAYS,
+  MAX_CYCLE_TIME_DAYS,
+  RETRY_ATTEMPTS,
+  RETRY_DELAY_MS
 };

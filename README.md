@@ -1,12 +1,12 @@
 # Changelog Notifier JavaScript Action
 
-Это GH Action отправляет уведомление в Telegram при выпуске новой версии и экспортирует DORA метрики в Prometheus.
+Это GH Action отправляет уведомление в Telegram при выпуске новой версии и экспортирует DORA метрики в InfluxDB.
 
 ## Возможности
 
 - **Telegram уведомления** - отправка changelog в Telegram при релизе
 - **YouGile интеграция** - обогащение данных о задачах из YouGile
-- **DORA метрики** - экспорт метрик DevOps производительности в Prometheus Pushgateway
+- **DORA метрики** - экспорт метрик DevOps производительности в InfluxDB
   - Deployment Frequency (частота деплоев)
   - Lead Time for Changes (время от коммита до продакшена)
   - Change Failure Rate (процент неудачных деплоев)
@@ -34,17 +34,21 @@
 
 JSON-строка из payload github.event с массивом коммитов. Если не указано, считается, что коммиты берутся из текущего workflow.
 
-### `pushgateway_url`
+### `influxdb_url`
 
-**Опционально** URL Prometheus Pushgateway для экспорта DORA метрик (например, `http://pushgateway:9091`). Если не указано, метрики не экспортируются.
+**Опционально** URL InfluxDB для экспорта DORA метрик (например, `http://influxdb:8181`). Если не указано, метрики не экспортируются.
+
+### `influxdb_bucket`
+
+**Опционально** Имя bucket в InfluxDB. По умолчанию `default`.
 
 ### `environment`
 
 **Опционально** Окружение деплоя (используется как label в метриках). По умолчанию `production`.
 
-### `metrics_job_name`
+### `github_token`
 
-**Опционально** Имя job для Prometheus метрик. По умолчанию `dora_metrics`.
+**Опционально** GitHub токен для доступа к API (для расчета lead time). Если не указано, используется `GITHUB_TOKEN` из окружения.
 
 ## Пример использования
 
@@ -92,7 +96,8 @@ jobs:
           yougile_api_key: ${{ secrets.YOUGILE_API_KEY }}
           project_name: "My Project"
           # DORA Metrics (опционально)
-          pushgateway_url: ${{ secrets.PUSHGATEWAY_URL }}
+          influxdb_url: ${{ secrets.INFLUXDB_URL }}
+          influxdb_bucket: ${{ secrets.INFLUXDB_BUCKET }}
           environment: "production"
           prefixes: |-
             feat
@@ -106,13 +111,13 @@ jobs:
 
 Action автоматически собирает и экспортирует 4 ключевые DORA метрики + Cycle Time:
 
-| Метрика | Описание | Prometheus Метрика |
-|---------|----------|-------------------|
-| **Deployment Frequency** | Частота деплоев | `deployment_total` |
-| **Lead Time for Changes** | Время от первого коммита/PR до продакшена | `deployment_lead_time_seconds` |
-| **Cycle Time** | Время от создания карточки до продакшена | `cycle_time_seconds` |
-| **Change Failure Rate** | Процент неудачных деплоев | `deployment_failures_total` / `deployment_total` |
-| **Mean Time to Recovery** | Время восстановления после инцидентов | `incident_recovery_time_seconds` |
+| Метрика | Описание | InfluxDB Measurement |
+|---------|----------|---------------------|
+| **Deployment Frequency** | Частота деплоев | `deployment` |
+| **Lead Time for Changes** | Время от первого коммита/PR до продакшена | `lead_time` |
+| **Cycle Time** | Время от создания карточки до продакшена | `cycle_time` |
+| **Change Failure Rate** | Процент неудачных деплоев | `deployment_failure` |
+| **Mean Time to Recovery** | Время восстановления после инцидентов | `mttr` |
 
 **Примечание:** Cycle Time требует YouGile API и доступен только для коммитов с task ID (TECH-XXXX).
 
