@@ -3,11 +3,8 @@ const {
   calculateMTTR,
   calculateCycleTimes,
   createMetricRow,
-  ensureTableExists,
   MAX_LEAD_TIME_DAYS,
-  MAX_CYCLE_TIME_DAYS,
-  RETRY_ATTEMPTS,
-  RETRY_DELAY_MS
+  MAX_CYCLE_TIME_DAYS
 } = require('../src/metrics');
 
 // Mock @actions/core
@@ -67,55 +64,6 @@ describe('createMetricRow', () => {
     expect(result.incident_type).toBe('hotfix');
     expect(result.seconds).toBe(600);
     expect(result.measurement).toBe('mttr');
-  });
-});
-
-describe('ensureTableExists', () => {
-  beforeEach(() => {
-    global.fetch = jest.fn();
-  });
-
-  afterEach(() => {
-    jest.restoreAllMocks();
-  });
-
-  test('sends CREATE TABLE IF NOT EXISTS DDL', async () => {
-    global.fetch.mockResolvedValue({ ok: true });
-    const config = { clickhouseUrl: 'http://localhost:8123', clickhouseDatabase: 'default', clickhouseTable: 'dora_metrics' };
-    await ensureTableExists(config);
-
-    expect(global.fetch).toHaveBeenCalledTimes(1);
-    const [url, opts] = global.fetch.mock.calls[0];
-    expect(url).toContain('http://localhost:8123');
-    expect(url).toContain('CREATE%20TABLE%20IF%20NOT%20EXISTS');
-    expect(url).toContain('dora_metrics');
-    expect(opts.method).toBe('POST');
-  });
-
-  test('sends X-ClickHouse-User header', async () => {
-    global.fetch.mockResolvedValue({ ok: true });
-    const config = { clickhouseUrl: 'http://localhost:8123', clickhouseUser: 'admin', clickhousePassword: 'secret' };
-    await ensureTableExists(config);
-
-    const [, opts] = global.fetch.mock.calls[0];
-    expect(opts.headers['X-ClickHouse-User']).toBe('admin');
-    expect(opts.headers['X-ClickHouse-Key']).toBe('secret');
-  });
-
-  test('omits X-ClickHouse-Key when no password provided', async () => {
-    global.fetch.mockResolvedValue({ ok: true });
-    const config = { clickhouseUrl: 'http://localhost:8123' };
-    await ensureTableExists(config);
-
-    const [, opts] = global.fetch.mock.calls[0];
-    expect(opts.headers['X-ClickHouse-User']).toBe('default');
-    expect(opts.headers['X-ClickHouse-Key']).toBeUndefined();
-  });
-
-  test('throws on HTTP error', async () => {
-    global.fetch.mockResolvedValue({ ok: false, status: 500, text: async () => 'DB error' });
-    const config = { clickhouseUrl: 'http://localhost:8123' };
-    await expect(ensureTableExists(config)).rejects.toThrow('HTTP 500');
   });
 });
 
@@ -407,14 +355,6 @@ describe('metrics constants', () => {
 
   test('MAX_CYCLE_TIME_DAYS is 180', () => {
     expect(MAX_CYCLE_TIME_DAYS).toBe(180);
-  });
-
-  test('RETRY_ATTEMPTS is 3', () => {
-    expect(RETRY_ATTEMPTS).toBe(3);
-  });
-
-  test('RETRY_DELAY_MS is 1000', () => {
-    expect(RETRY_DELAY_MS).toBe(1000);
   });
 });
 
