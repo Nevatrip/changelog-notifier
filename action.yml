@@ -54,5 +54,5 @@ inputs:
     description: "GitHub token for API access (calculating lead times). If not provided, defaults to GITHUB_TOKEN environment variable."
     required: false
 runs:
-  using: "node20"
+  using: "node24"
   main: "dist/index.js"
