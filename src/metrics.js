@@ -6,7 +6,7 @@
 const core = require('@actions/core');
 const github = require('@actions/github');
 const { isRevertCommit, isHotfixDeployment, extractIncidentType } = require('./detectors');
-const { hasTaskId, TASK_ID_PATTERN } = require('./parsing');
+const { hasTaskId, TASK_ID_PATTERN, extractPrefix } = require('./parsing');
 const { pushWithRetry, RETRY_ATTEMPTS } = require('./clickhouse');
 
 const MAX_LEAD_TIME_DAYS = 30;
@@ -47,12 +47,16 @@ async function recordAndPushMetrics(config) {
   const timestamp = new Date().toISOString();
   const hasTask = commits.some(commit => hasTaskId(commit.message));
 
-  // Common tags for all metrics
+  const PREFIX_PRIORITY = ['feat', 'fix', 'refactor', 'perf', 'docs', 'style', 'test', 'chore'];
+  const prefixesFound = commits.map(c => extractPrefix(c.message)).filter(Boolean);
+  const dominantType = PREFIX_PRIORITY.find(p => prefixesFound.includes(p)) || prefixesFound[0] || null;
+
   const tags = {
     project: projectName,
     repository,
     environment,
-    has_task: hasTask ? 'yes' : 'no'
+    has_task: hasTask ? 'yes' : 'no',
+    type: dominantType
   };
 
   const metrics = [];

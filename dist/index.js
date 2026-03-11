@@ -29515,6 +29515,7 @@ async function ensureTableExists(config) {
         '  repository String,',
         '  environment String,',
         '  has_task String,',
+        '  type Nullable(String),',
         '  incident_type Nullable(String),',
         '  count Nullable(Int32),',
         '  seconds Nullable(Float64)',
@@ -29700,7 +29701,7 @@ module.exports = {
 const core = __nccwpck_require__(7484);
 const github = __nccwpck_require__(3228);
 const { isRevertCommit, isHotfixDeployment, extractIncidentType } = __nccwpck_require__(5598);
-const { hasTaskId, TASK_ID_PATTERN } = __nccwpck_require__(9553);
+const { hasTaskId, TASK_ID_PATTERN, extractPrefix } = __nccwpck_require__(9553);
 const { pushWithRetry, RETRY_ATTEMPTS } = __nccwpck_require__(5669);
 
 const MAX_LEAD_TIME_DAYS = 30;
@@ -29741,12 +29742,16 @@ async function recordAndPushMetrics(config) {
   const timestamp = new Date().toISOString();
   const hasTask = commits.some(commit => hasTaskId(commit.message));
 
-  // Common tags for all metrics
+  const PREFIX_PRIORITY = ['feat', 'fix', 'refactor', 'perf', 'docs', 'style', 'test', 'chore'];
+  const prefixesFound = commits.map(c => extractPrefix(c.message)).filter(Boolean);
+  const dominantType = PREFIX_PRIORITY.find(p => prefixesFound.includes(p)) || prefixesFound[0] || null;
+
   const tags = {
     project: projectName,
     repository,
     environment,
-    has_task: hasTask ? 'yes' : 'no'
+    has_task: hasTask ? 'yes' : 'no',
+    type: dominantType
   };
 
   const metrics = [];
@@ -30168,6 +30173,18 @@ function parseProblemDescription(message, problemTitle) {
 }
 
 /**
+ * Extract commit prefix from message (e.g., "feat", "fix")
+ * Supports formats: "feat: msg", "feat(scope): msg", "feat(TASK-123): msg"
+ * @param {string} message - Commit message
+ * @returns {string|null} - Prefix or null
+ */
+function extractPrefix(message) {
+  if (!message) return null;
+  const match = message.match(/^([a-z]+)[:(]/);
+  return match ? match[1] : null;
+}
+
+/**
  * Check if message has a specific prefix
  * @param {string} message - Message to check
  * @param {string} prefix - Prefix to look for (e.g., "feat", "fix")
@@ -30196,6 +30213,7 @@ module.exports = {
   escapeMarkdown,
   getFirstLine,
   extractTaskId,
+  extractPrefix,
   hasTaskId,
   removeTaskIdSuffix,
   parseProblemDescription,

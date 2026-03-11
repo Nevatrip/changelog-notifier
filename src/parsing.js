@@ -83,6 +83,18 @@ function parseProblemDescription(message, problemTitle) {
 }
 
 /**
+ * Extract commit prefix from message (e.g., "feat", "fix")
+ * Supports formats: "feat: msg", "feat(scope): msg", "feat(TASK-123): msg"
+ * @param {string} message - Commit message
+ * @returns {string|null} - Prefix or null
+ */
+function extractPrefix(message) {
+  if (!message) return null;
+  const match = message.match(/^([a-z]+)[:(]/);
+  return match ? match[1] : null;
+}
+
+/**
  * Check if message has a specific prefix
  * @param {string} message - Message to check
  * @param {string} prefix - Prefix to look for (e.g., "feat", "fix")
@@ -111,6 +123,7 @@ module.exports = {
   escapeMarkdown,
   getFirstLine,
   extractTaskId,
+  extractPrefix,
   hasTaskId,
   removeTaskIdSuffix,
   parseProblemDescription,

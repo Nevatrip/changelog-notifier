@@ -42,6 +42,7 @@ async function ensureTableExists(config) {
         '  repository String,',
         '  environment String,',
         '  has_task String,',
+        '  type Nullable(String),',
         '  incident_type Nullable(String),',
         '  count Nullable(Int32),',
         '  seconds Nullable(Float64)',
