@@ -23,7 +23,7 @@ async function main() {
     const { repo } = github.context.repo;
 
     // Push DORA metrics if configured
-    const clickhouseUrl = core.getInput('clickhouse_url');
+    const clickhouseUrl = core.getInput('db_url');
     if (clickhouseUrl) {
       try {
         await metricsModule.recordAndPushMetrics({
@@ -32,10 +32,10 @@ async function main() {
           projectName: projectName || repo,
           repository: repo,
           clickhouseUrl,
-          clickhouseUser: core.getInput('clickhouse_user') || 'default',
-          clickhousePassword: core.getInput('clickhouse_password'),
-          clickhouseDatabase: core.getInput('clickhouse_database') || 'default',
-          clickhouseTable: core.getInput('clickhouse_table') || 'dora_metrics',
+          clickhouseUser: core.getInput('db_user') || 'default',
+          clickhousePassword: core.getInput('db_password'),
+          clickhouseDatabase: core.getInput('db_database') || 'default',
+          clickhouseTable: core.getInput('db_table') || 'dora_metrics',
           environment: core.getInput('environment') || 'production',
           githubToken: core.getInput('github_token') || process.env.GITHUB_TOKEN,
           yogileInstance: yogileInstance

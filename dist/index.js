@@ -29,7 +29,7 @@ async function main() {
     const { repo } = github.context.repo;
 
     // Push DORA metrics if configured
-    const clickhouseUrl = core.getInput('clickhouse_url');
+    const clickhouseUrl = core.getInput('db_url');
     if (clickhouseUrl) {
       try {
         await metricsModule.recordAndPushMetrics({
@@ -38,10 +38,10 @@ async function main() {
           projectName: projectName || repo,
           repository: repo,
           clickhouseUrl,
-          clickhouseUser: core.getInput('clickhouse_user') || 'default',
-          clickhousePassword: core.getInput('clickhouse_password'),
-          clickhouseDatabase: core.getInput('clickhouse_database') || 'default',
-          clickhouseTable: core.getInput('clickhouse_table') || 'dora_metrics',
+          clickhouseUser: core.getInput('db_user') || 'default',
+          clickhousePassword: core.getInput('db_password'),
+          clickhouseDatabase: core.getInput('db_database') || 'default',
+          clickhouseTable: core.getInput('db_table') || 'dora_metrics',
           environment: core.getInput('environment') || 'production',
           githubToken: core.getInput('github_token') || process.env.GITHUB_TOKEN,
           yogileInstance: yogileInstance
@@ -29468,6 +29468,151 @@ module.exports = {
 
 /***/ }),
 
+/***/ 5669:
+/***/ ((module, __unused_webpack_exports, __nccwpck_require__) => {
+
+/**
+ * ClickHouse Client Module
+ * Handles table provisioning and metric writes to ClickHouse
+ */
+
+const core = __nccwpck_require__(7484);
+
+const RETRY_ATTEMPTS = 3;
+const RETRY_DELAY_MS = 1000;
+
+/**
+ * @param {number} ms
+ */
+function sleep(ms) {
+    return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+/**
+ * Ensure ClickHouse table exists, creating it if necessary
+ * @param {Object} config
+ * @param {string} config.clickhouseUrl
+ * @param {string} [config.clickhouseUser]
+ * @param {string} [config.clickhousePassword]
+ * @param {string} [config.clickhouseDatabase]
+ * @param {string} [config.clickhouseTable]
+ */
+async function ensureTableExists(config) {
+    const {
+        clickhouseUrl,
+        clickhouseUser = 'default',
+        clickhousePassword,
+        clickhouseDatabase = 'default',
+        clickhouseTable = 'dora_metrics'
+    } = config;
+
+    const ddl = [
+        `CREATE TABLE IF NOT EXISTS ${clickhouseDatabase}.${clickhouseTable}`,
+        '(',
+        '  timestamp DateTime64(3),',
+        '  measurement String,',
+        '  project String,',
+        '  repository String,',
+        '  environment String,',
+        '  has_task String,',
+        '  incident_type Nullable(String),',
+        '  count Nullable(Int32),',
+        '  seconds Nullable(Float64)',
+        ') ENGINE = MergeTree()',
+        'ORDER BY (timestamp, measurement, project)'
+    ].join(' ');
+
+    const headers = { 'X-ClickHouse-User': clickhouseUser };
+    if (clickhousePassword) headers['X-ClickHouse-Key'] = clickhousePassword;
+
+    const response = await fetch(`${clickhouseUrl}/?query=${encodeURIComponent(ddl)}`, {
+        method: 'POST',
+        headers
+    });
+
+    if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`Failed to create ClickHouse table: HTTP ${response.status}: ${errorText}`);
+    }
+
+    core.info(`Table ${clickhouseDatabase}.${clickhouseTable} is ready`);
+}
+
+/**
+ * Insert metrics into ClickHouse using JSONEachRow format
+ * @param {Object[]} metrics - Array of metric row objects
+ * @param {Object} config
+ * @param {string} config.clickhouseUrl
+ * @param {string} [config.clickhouseUser]
+ * @param {string} [config.clickhousePassword]
+ * @param {string} [config.clickhouseDatabase]
+ * @param {string} [config.clickhouseTable]
+ */
+async function pushMetricsToClickHouse(metrics, config) {
+    const {
+        clickhouseUrl,
+        clickhouseUser = 'default',
+        clickhousePassword,
+        clickhouseDatabase = 'default',
+        clickhouseTable = 'dora_metrics'
+    } = config;
+
+    await ensureTableExists(config);
+
+    const query = `INSERT INTO ${clickhouseDatabase}.${clickhouseTable} FORMAT JSONEachRow`;
+    const url = `${clickhouseUrl}/?query=${encodeURIComponent(query)}&date_time_input_format=best_effort`;
+    const body = metrics.map(row => JSON.stringify(row)).join('\n');
+
+    const headers = {
+        'Content-Type': 'application/json',
+        'X-ClickHouse-User': clickhouseUser
+    };
+    if (clickhousePassword) headers['X-ClickHouse-Key'] = clickhousePassword;
+
+    const response = await fetch(url, { method: 'POST', headers, body });
+
+    if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`HTTP ${response.status}: ${errorText}`);
+    }
+
+    core.info(`Pushed ${metrics.length} metrics to ${url}`);
+}
+
+/**
+ * Push metrics to ClickHouse with retry logic
+ * @param {Object[]} metrics
+ * @param {Object} config
+ * @param {number} maxRetries
+ */
+async function pushWithRetry(metrics, config, maxRetries) {
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+        try {
+            await pushMetricsToClickHouse(metrics, config);
+            core.info('Successfully pushed DORA metrics to ClickHouse');
+            return;
+        } catch (error) {
+            if (attempt === maxRetries) {
+                throw new Error(`Failed to push metrics after ${maxRetries} attempts: ${error.message}`);
+            }
+            const delay = RETRY_DELAY_MS * attempt;
+            core.warning(`Push attempt ${attempt} failed, retrying in ${delay}ms: ${error.message}`);
+            await sleep(delay);
+        }
+    }
+}
+
+module.exports = {
+    ensureTableExists,
+    pushMetricsToClickHouse,
+    pushWithRetry,
+    RETRY_ATTEMPTS,
+    RETRY_DELAY_MS
+};
+
+
+/***/ }),
+
 /***/ 5598:
 /***/ ((module) => {
 
@@ -29556,12 +29701,10 @@ const core = __nccwpck_require__(7484);
 const github = __nccwpck_require__(3228);
 const { isRevertCommit, isHotfixDeployment, extractIncidentType } = __nccwpck_require__(5598);
 const { hasTaskId, TASK_ID_PATTERN } = __nccwpck_require__(9553);
+const { pushWithRetry, RETRY_ATTEMPTS } = __nccwpck_require__(5669);
 
-// Constants
-const MAX_LEAD_TIME_DAYS = 30; // Filter outliers
-const MAX_CYCLE_TIME_DAYS = 180; // 6 months - filter extreme outliers
-const RETRY_ATTEMPTS = 3;
-const RETRY_DELAY_MS = 1000;
+const MAX_LEAD_TIME_DAYS = 30;
+const MAX_CYCLE_TIME_DAYS = 180;
 
 /**
  * Main entry point for recording and pushing DORA metrics
@@ -29923,110 +30066,6 @@ function detectFailures(commits, ref) {
   return hasRevert || isHotfix;
 }
 
-/**
- * Push metrics to ClickHouse with retry logic
- * @param {Array} metrics - Array of metric row objects
- * @param {Object} config - Configuration object
- * @param {number} maxRetries - Maximum number of retry attempts
- */
-async function pushWithRetry(metrics, config, maxRetries) {
-  for (let attempt = 1; attempt <= maxRetries; attempt++) {
-    try {
-      await pushMetricsToClickHouse(metrics, config);
-      core.info('Successfully pushed DORA metrics to ClickHouse');
-      return;
-    } catch (error) {
-      if (attempt === maxRetries) {
-        throw new Error(`Failed to push metrics after ${maxRetries} attempts: ${error.message}`);
-      }
-      const delay = RETRY_DELAY_MS * attempt;
-      core.warning(`Push attempt ${attempt} failed, retrying in ${delay}ms: ${error.message}`);
-      await sleep(delay);
-    }
-  }
-}
-
-/**
- * Ensure ClickHouse table exists, creating it if necessary
- * @param {Object} config - Configuration object
- */
-async function ensureTableExists(config) {
-  const { clickhouseUrl, clickhouseUser = 'default', clickhousePassword, clickhouseDatabase = 'default', clickhouseTable = 'dora_metrics' } = config;
-
-  const ddl = [
-    `CREATE TABLE IF NOT EXISTS ${clickhouseDatabase}.${clickhouseTable}`,
-    '(',
-    '  timestamp DateTime64(3),',
-    '  measurement String,',
-    '  project String,',
-    '  repository String,',
-    '  environment String,',
-    '  has_task String,',
-    '  incident_type Nullable(String),',
-    '  count Nullable(Int32),',
-    '  seconds Nullable(Float64)',
-    ') ENGINE = MergeTree()',
-    'ORDER BY (timestamp, measurement, project)'
-  ].join(' ');
-
-  const headers = { 'X-ClickHouse-User': clickhouseUser };
-  if (clickhousePassword) headers['X-ClickHouse-Key'] = clickhousePassword;
-
-  const response = await fetch(`${clickhouseUrl}/?query=${encodeURIComponent(ddl)}`, {
-    method: 'POST',
-    headers
-  });
-
-  if (!response.ok) {
-    const errorText = await response.text();
-    throw new Error(`Failed to create ClickHouse table: HTTP ${response.status}: ${errorText}`);
-  }
-
-  core.info(`Table ${clickhouseDatabase}.${clickhouseTable} is ready`);
-}
-
-/**
- * Push metrics to ClickHouse
- * @param {Array} metrics - Array of metric row objects
- * @param {Object} config - Configuration object
- */
-async function pushMetricsToClickHouse(metrics, config) {
-  const { clickhouseUrl, clickhouseUser = 'default', clickhousePassword, clickhouseDatabase = 'default', clickhouseTable = 'dora_metrics' } = config;
-
-  await ensureTableExists(config);
-
-  const query = `INSERT INTO ${clickhouseDatabase}.${clickhouseTable} FORMAT JSONEachRow`;
-  const url = `${clickhouseUrl}/?query=${encodeURIComponent(query)}`;
-  const body = metrics.map(row => JSON.stringify(row)).join('\n');
-
-  const headers = {
-    'Content-Type': 'application/json',
-    'X-ClickHouse-User': clickhouseUser
-  };
-  if (clickhousePassword) headers['X-ClickHouse-Key'] = clickhousePassword;
-
-  const response = await fetch(url, {
-    method: 'POST',
-    headers,
-    body
-  });
-
-  if (!response.ok) {
-    const errorText = await response.text();
-    throw new Error(`HTTP ${response.status}: ${errorText}`);
-  }
-
-  core.info(`Pushed ${metrics.length} metrics to ${url}`);
-}
-
-/**
- * Sleep utility function
- * @param {number} ms - Milliseconds to sleep
- */
-function sleep(ms) {
-  return new Promise(resolve => setTimeout(resolve, ms));
-}
-
 module.exports = {
   recordAndPushMetrics,
   calculateLeadTimes,
@@ -30034,12 +30073,8 @@ module.exports = {
   calculateMTTR,
   detectFailures,
   createMetricRow,
-  ensureTableExists,
-  // Export constants for testing
   MAX_LEAD_TIME_DAYS,
-  MAX_CYCLE_TIME_DAYS,
-  RETRY_ATTEMPTS,
-  RETRY_DELAY_MS
+  MAX_CYCLE_TIME_DAYS
 };
 
 
