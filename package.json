@@ -1,9 +1,10 @@
 {
   "name": "changelog-notifier",
-  "version": "2.4.0",
+  "version": "2.4.1",
   "main": "dist/index.js",
   "scripts": {
     "build": "ncc build index.js -o dist --license licenses.txt",
+    "release": "VERSION=$(node -p \"require('./package.json').version\") && git tag \"v$VERSION\" && git tag -f latest && git push origin \"v$VERSION\" && git push origin latest --force",
     "test": "jest",
     "test:coverage": "jest --coverage"
   },
