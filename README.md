@@ -34,13 +34,17 @@
 
 JSON-строка из payload github.event с массивом коммитов. Если не указано, считается, что коммиты берутся из текущего workflow.
 
-### `influxdb_url`
+### `clickhouse_url`
 
-**Опционально** URL InfluxDB для экспорта DORA метрик (например, `http://influxdb:8181`). Если не указано, метрики не экспортируются.
+**Опционально** URL ClickHouse для экспорта DORA метрик (например, `http://clickhouse:8123`). Если не указано, метрики не экспортируются.
 
-### `influxdb_bucket`
+### `clickhouse_database`
 
-**Опционально** Имя bucket в InfluxDB. По умолчанию `default`.
+**Опционально** Имя базы данных в ClickHouse. По умолчанию `default`.
+
+### `clickhouse_table`
+
+**Опционально** Имя таблицы в ClickHouse. По умолчанию `dora_metrics`. Таблица создаётся автоматически при первом запуске.
 
 ### `environment`
 
@@ -96,8 +100,8 @@ jobs:
           yougile_api_key: ${{ secrets.YOUGILE_API_KEY }}
           project_name: "My Project"
           # DORA Metrics (опционально)
-          influxdb_url: ${{ secrets.INFLUXDB_URL }}
-          influxdb_bucket: ${{ secrets.INFLUXDB_BUCKET }}
+          clickhouse_url: ${{ secrets.CLICKHOUSE_URL }}
+          clickhouse_database: ${{ secrets.CLICKHOUSE_DATABASE }}
           environment: "production"
           prefixes: |-
             feat
@@ -111,7 +115,7 @@ jobs:
 
 Action автоматически собирает и экспортирует 4 ключевые DORA метрики + Cycle Time:
 
-| Метрика | Описание | InfluxDB Measurement |
+| Метрика | Описание | measurement |
 |---------|----------|---------------------|
 | **Deployment Frequency** | Частота деплоев | `deployment` |
 | **Lead Time for Changes** | Время от первого коммита/PR до продакшена | `lead_time` |

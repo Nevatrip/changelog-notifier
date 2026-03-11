@@ -2,9 +2,8 @@ const {
   detectFailures,
   calculateMTTR,
   calculateCycleTimes,
-  createLineProtocol,
-  escapeTag,
-  formatFieldValue,
+  createMetricRow,
+  ensureTableExists,
   MAX_LEAD_TIME_DAYS,
   MAX_CYCLE_TIME_DAYS,
   RETRY_ATTEMPTS,
@@ -25,84 +24,98 @@ jest.mock('@actions/github', () => ({
   }
 }));
 
-describe('createLineProtocol', () => {
-  test('creates valid line protocol string', () => {
-    const result = createLineProtocol(
+describe('createMetricRow', () => {
+  test('returns plain object with all fields merged', () => {
+    const result = createMetricRow(
       'deployment',
       { project: 'test', environment: 'prod' },
       { count: 1 },
-      1234567890000000000
+      '2024-01-01T00:00:00.000Z'
     );
-    expect(result).toBe('deployment,project=test,environment=prod count=1i 1234567890000000000');
+    expect(result).toEqual({
+      timestamp: '2024-01-01T00:00:00.000Z',
+      measurement: 'deployment',
+      project: 'test',
+      environment: 'prod',
+      count: 1
+    });
   });
 
   test('handles multiple fields', () => {
-    const result = createLineProtocol(
+    const result = createMetricRow(
       'lead_time',
       { project: 'test' },
       { seconds: 3600.5, count: 5 },
-      1234567890000000000
+      '2024-01-01T00:00:00.000Z'
     );
-    expect(result).toBe('lead_time,project=test seconds=3600.5,count=5i 1234567890000000000');
+    expect(result).toEqual({
+      timestamp: '2024-01-01T00:00:00.000Z',
+      measurement: 'lead_time',
+      project: 'test',
+      seconds: 3600.5,
+      count: 5
+    });
   });
 
-  test('escapes special characters in tags', () => {
-    const result = createLineProtocol(
-      'test',
-      { project: 'my project', tag: 'a=b,c' },
-      { value: 1 },
-      1234567890000000000
+  test('handles extra tags object', () => {
+    const result = createMetricRow(
+      'mttr',
+      { project: 'foo', environment: 'prod', incident_type: 'hotfix' },
+      { seconds: 600 },
+      '2024-01-01T00:00:00.000Z'
     );
-    expect(result).toContain('project=my\\ project');
-    expect(result).toContain('tag=a\\=b\\,c');
+    expect(result.incident_type).toBe('hotfix');
+    expect(result.seconds).toBe(600);
+    expect(result.measurement).toBe('mttr');
   });
 });
 
-describe('escapeTag', () => {
-  test('escapes commas', () => {
-    expect(escapeTag('a,b')).toBe('a\\,b');
+describe('ensureTableExists', () => {
+  beforeEach(() => {
+    global.fetch = jest.fn();
   });
 
-  test('escapes equals signs', () => {
-    expect(escapeTag('a=b')).toBe('a\\=b');
+  afterEach(() => {
+    jest.restoreAllMocks();
   });
 
-  test('escapes spaces', () => {
-    expect(escapeTag('a b')).toBe('a\\ b');
+  test('sends CREATE TABLE IF NOT EXISTS DDL', async () => {
+    global.fetch.mockResolvedValue({ ok: true });
+    const config = { clickhouseUrl: 'http://localhost:8123', clickhouseDatabase: 'default', clickhouseTable: 'dora_metrics' };
+    await ensureTableExists(config);
+
+    expect(global.fetch).toHaveBeenCalledTimes(1);
+    const [url, opts] = global.fetch.mock.calls[0];
+    expect(url).toContain('http://localhost:8123');
+    expect(url).toContain('CREATE%20TABLE%20IF%20NOT%20EXISTS');
+    expect(url).toContain('dora_metrics');
+    expect(opts.method).toBe('POST');
   });
 
-  test('escapes multiple special characters', () => {
-    expect(escapeTag('a,b=c d')).toBe('a\\,b\\=c\\ d');
+  test('sends X-ClickHouse-User header', async () => {
+    global.fetch.mockResolvedValue({ ok: true });
+    const config = { clickhouseUrl: 'http://localhost:8123', clickhouseUser: 'admin', clickhousePassword: 'secret' };
+    await ensureTableExists(config);
+
+    const [, opts] = global.fetch.mock.calls[0];
+    expect(opts.headers['X-ClickHouse-User']).toBe('admin');
+    expect(opts.headers['X-ClickHouse-Key']).toBe('secret');
   });
 
-  test('returns unchanged string without special chars', () => {
-    expect(escapeTag('simple')).toBe('simple');
-  });
-});
+  test('omits X-ClickHouse-Key when no password provided', async () => {
+    global.fetch.mockResolvedValue({ ok: true });
+    const config = { clickhouseUrl: 'http://localhost:8123' };
+    await ensureTableExists(config);
 
-describe('formatFieldValue', () => {
-  test('formats integers with i suffix', () => {
-    expect(formatFieldValue(42)).toBe('42i');
-    expect(formatFieldValue(0)).toBe('0i');
-    expect(formatFieldValue(-5)).toBe('-5i');
+    const [, opts] = global.fetch.mock.calls[0];
+    expect(opts.headers['X-ClickHouse-User']).toBe('default');
+    expect(opts.headers['X-ClickHouse-Key']).toBeUndefined();
   });
 
-  test('formats floats without suffix', () => {
-    expect(formatFieldValue(3.14)).toBe('3.14');
-    expect(formatFieldValue(0.5)).toBe('0.5');
-  });
-
-  test('formats booleans', () => {
-    expect(formatFieldValue(true)).toBe('true');
-    expect(formatFieldValue(false)).toBe('false');
-  });
-
-  test('formats strings with quotes', () => {
-    expect(formatFieldValue('hello')).toBe('"hello"');
-  });
-
-  test('escapes quotes in strings', () => {
-    expect(formatFieldValue('say "hi"')).toBe('"say \\"hi\\""');
+  test('throws on HTTP error', async () => {
+    global.fetch.mockResolvedValue({ ok: false, status: 500, text: async () => 'DB error' });
+    const config = { clickhouseUrl: 'http://localhost:8123' };
+    await expect(ensureTableExists(config)).rejects.toThrow('HTTP 500');
   });
 });
 

@@ -23,22 +23,25 @@ async function main() {
     const { repo } = github.context.repo;
 
     // Push DORA metrics if configured
-    const influxdbUrl = core.getInput('influxdb_url');
-    if (influxdbUrl) {
+    const clickhouseUrl = core.getInput('clickhouse_url');
+    if (clickhouseUrl) {
       try {
         await metricsModule.recordAndPushMetrics({
           commits,
           ref: github.context.ref,
           projectName: projectName || repo,
           repository: repo,
-          influxdbUrl,
-          influxdbBucket: core.getInput('influxdb_bucket') || 'default',
+          clickhouseUrl,
+          clickhouseUser: core.getInput('clickhouse_user') || 'default',
+          clickhousePassword: core.getInput('clickhouse_password'),
+          clickhouseDatabase: core.getInput('clickhouse_database') || 'default',
+          clickhouseTable: core.getInput('clickhouse_table') || 'dora_metrics',
           environment: core.getInput('environment') || 'production',
           githubToken: core.getInput('github_token') || process.env.GITHUB_TOKEN,
           yogileInstance: yogileInstance
         });
 
-        core.info('DORA metrics pushed to InfluxDB');
+        core.info('DORA metrics pushed to ClickHouse');
       } catch (error) {
         // Non-fatal: log warning but continue
         core.warning(`Failed to push metrics: ${error.message}`);

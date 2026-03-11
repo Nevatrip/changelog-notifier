@@ -29,22 +29,25 @@ async function main() {
     const { repo } = github.context.repo;
 
     // Push DORA metrics if configured
-    const influxdbUrl = core.getInput('influxdb_url');
-    if (influxdbUrl) {
+    const clickhouseUrl = core.getInput('clickhouse_url');
+    if (clickhouseUrl) {
       try {
         await metricsModule.recordAndPushMetrics({
           commits,
           ref: github.context.ref,
           projectName: projectName || repo,
           repository: repo,
-          influxdbUrl,
-          influxdbBucket: core.getInput('influxdb_bucket') || 'default',
+          clickhouseUrl,
+          clickhouseUser: core.getInput('clickhouse_user') || 'default',
+          clickhousePassword: core.getInput('clickhouse_password'),
+          clickhouseDatabase: core.getInput('clickhouse_database') || 'default',
+          clickhouseTable: core.getInput('clickhouse_table') || 'dora_metrics',
           environment: core.getInput('environment') || 'production',
           githubToken: core.getInput('github_token') || process.env.GITHUB_TOKEN,
           yogileInstance: yogileInstance
         });
 
-        core.info('DORA metrics pushed to InfluxDB');
+        core.info('DORA metrics pushed to ClickHouse');
       } catch (error) {
         // Non-fatal: log warning but continue
         core.warning(`Failed to push metrics: ${error.message}`);
@@ -29546,7 +29549,7 @@ module.exports = {
 
 /**
  * DORA Metrics Module
- * Calculates and exports DORA metrics to InfluxDB
+ * Calculates and exports DORA metrics to ClickHouse
  */
 
 const core = __nccwpck_require__(7484);
@@ -29567,8 +29570,11 @@ const RETRY_DELAY_MS = 1000;
  * @param {string} config.ref - Git ref (e.g., refs/heads/main)
  * @param {string} config.projectName - Project name
  * @param {string} config.repository - Repository name
- * @param {string} config.influxdbUrl - InfluxDB URL (e.g., http://localhost:8181)
- * @param {string} config.influxdbBucket - InfluxDB bucket name (default: default)
+ * @param {string} config.clickhouseUrl - ClickHouse URL (e.g., http://clickhouse:8123)
+ * @param {string} config.clickhouseUser - ClickHouse username (default: default)
+ * @param {string} config.clickhousePassword - ClickHouse password
+ * @param {string} config.clickhouseDatabase - ClickHouse database name (default: default)
+ * @param {string} config.clickhouseTable - ClickHouse table name (default: dora_metrics)
  * @param {string} config.environment - Deployment environment (default: production)
  * @param {string} config.githubToken - GitHub token for API access
  * @param {Object} config.yogileInstance - YouGile API instance (optional, for Cycle Time)
@@ -29589,7 +29595,7 @@ async function recordAndPushMetrics(config) {
     return;
   }
 
-  const timestamp = Date.now() * 1000000; // nanoseconds for InfluxDB
+  const timestamp = new Date().toISOString();
   const hasTask = commits.some(commit => hasTaskId(commit.message));
 
   // Common tags for all metrics
@@ -29603,14 +29609,14 @@ async function recordAndPushMetrics(config) {
   const metrics = [];
 
   // 1. Record deployment (for Deployment Frequency)
-  metrics.push(createLineProtocol('deployment', tags, { count: 1 }, timestamp));
+  metrics.push(createMetricRow('deployment', tags, { count: 1 }, timestamp));
   core.info(`Recorded deployment for ${projectName} in ${environment}`);
 
   // 2. Calculate and record Lead Time
   try {
     const avgLeadTime = await calculateLeadTimes(commits, githubToken);
     if (avgLeadTime !== null) {
-      metrics.push(createLineProtocol('lead_time', tags, { seconds: avgLeadTime }, timestamp));
+      metrics.push(createMetricRow('lead_time', tags, { seconds: avgLeadTime }, timestamp));
     }
   } catch (error) {
     core.warning(`Failed to calculate lead times: ${error.message}`);
@@ -29621,7 +29627,7 @@ async function recordAndPushMetrics(config) {
     try {
       const avgCycleTime = await calculateCycleTimes(commits, yogileInstance);
       if (avgCycleTime !== null) {
-        metrics.push(createLineProtocol('cycle_time', tags, { seconds: avgCycleTime }, timestamp));
+        metrics.push(createMetricRow('cycle_time', tags, { seconds: avgCycleTime }, timestamp));
       }
     } catch (error) {
       core.warning(`Failed to calculate cycle times: ${error.message}`);
@@ -29631,7 +29637,7 @@ async function recordAndPushMetrics(config) {
   // 4. Detect failures (for Change Failure Rate)
   const hasFailure = detectFailures(commits, ref);
   if (hasFailure) {
-    metrics.push(createLineProtocol('deployment_failure', tags, { count: 1 }, timestamp));
+    metrics.push(createMetricRow('deployment_failure', tags, { count: 1 }, timestamp));
     core.info('Detected deployment failure (revert or hotfix detected)');
   }
 
@@ -29643,60 +29649,28 @@ async function recordAndPushMetrics(config) {
       const incidentType = hasRevertCommit ? 'revert' : (extractIncidentType('', ref) === 'hotfix' ? 'hotfix' : 'unknown');
 
       const mttrTags = { ...tags, incident_type: incidentType };
-      metrics.push(createLineProtocol('mttr', mttrTags, { seconds: recoveryTime }, timestamp));
+      metrics.push(createMetricRow('mttr', mttrTags, { seconds: recoveryTime }, timestamp));
     }
   } catch (error) {
     core.warning(`Failed to calculate MTTR: ${error.message}`);
   }
 
-  // 6. Push metrics to InfluxDB
+  // 6. Push metrics to ClickHouse
   if (metrics.length > 0) {
     await pushWithRetry(metrics, config, RETRY_ATTEMPTS);
   }
 }
 
 /**
- * Create InfluxDB line protocol string
+ * Create a ClickHouse metric row as a plain object
  * @param {string} measurement - Measurement name
  * @param {Object} tags - Tags object
  * @param {Object} fields - Fields object
- * @param {number} timestamp - Timestamp in nanoseconds
- * @returns {string} - Line protocol string
+ * @param {string} timestamp - ISO 8601 timestamp
+ * @returns {Object} - Row object for JSONEachRow insertion
  */
-function createLineProtocol(measurement, tags, fields, timestamp) {
-  const tagStr = Object.entries(tags)
-    .map(([k, v]) => `${escapeTag(k)}=${escapeTag(String(v))}`)
-    .join(',');
-
-  const fieldStr = Object.entries(fields)
-    .map(([k, v]) => `${escapeTag(k)}=${formatFieldValue(v)}`)
-    .join(',');
-
-  return `${measurement},${tagStr} ${fieldStr} ${timestamp}`;
-}
-
-/**
- * Escape special characters for InfluxDB line protocol tags
- * @param {string} str - String to escape
- * @returns {string} - Escaped string
- */
-function escapeTag(str) {
-  return str.replace(/[,= ]/g, '\\$&');
-}
-
-/**
- * Format field value for InfluxDB line protocol
- * @param {*} value - Value to format
- * @returns {string} - Formatted value
- */
-function formatFieldValue(value) {
-  if (typeof value === 'number') {
-    return Number.isInteger(value) ? `${value}i` : value.toString();
-  }
-  if (typeof value === 'boolean') {
-    return value.toString();
-  }
-  return `"${String(value).replace(/"/g, '\\"')}"`;
+function createMetricRow(measurement, tags, fields, timestamp) {
+  return { timestamp, measurement, ...tags, ...fields };
 }
 
 /**
@@ -29950,16 +29924,16 @@ function detectFailures(commits, ref) {
 }
 
 /**
- * Push metrics to InfluxDB with retry logic
- * @param {Array} metrics - Array of line protocol strings
+ * Push metrics to ClickHouse with retry logic
+ * @param {Array} metrics - Array of metric row objects
  * @param {Object} config - Configuration object
  * @param {number} maxRetries - Maximum number of retry attempts
  */
 async function pushWithRetry(metrics, config, maxRetries) {
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
     try {
-      await pushMetricsToInfluxDB(metrics, config);
-      core.info('Successfully pushed DORA metrics to InfluxDB');
+      await pushMetricsToClickHouse(metrics, config);
+      core.info('Successfully pushed DORA metrics to ClickHouse');
       return;
     } catch (error) {
       if (attempt === maxRetries) {
@@ -29973,21 +29947,67 @@ async function pushWithRetry(metrics, config, maxRetries) {
 }
 
 /**
- * Push metrics to InfluxDB
- * @param {Array} metrics - Array of line protocol strings
+ * Ensure ClickHouse table exists, creating it if necessary
  * @param {Object} config - Configuration object
  */
-async function pushMetricsToInfluxDB(metrics, config) {
-  const { influxdbUrl, influxdbBucket = 'default' } = config;
+async function ensureTableExists(config) {
+  const { clickhouseUrl, clickhouseUser = 'default', clickhousePassword, clickhouseDatabase = 'default', clickhouseTable = 'dora_metrics' } = config;
 
-  const url = `${influxdbUrl}/write?db=${encodeURIComponent(influxdbBucket)}&precision=ns`;
-  const body = metrics.join('\n');
+  const ddl = [
+    `CREATE TABLE IF NOT EXISTS ${clickhouseDatabase}.${clickhouseTable}`,
+    '(',
+    '  timestamp DateTime64(3),',
+    '  measurement String,',
+    '  project String,',
+    '  repository String,',
+    '  environment String,',
+    '  has_task String,',
+    '  incident_type Nullable(String),',
+    '  count Nullable(Int32),',
+    '  seconds Nullable(Float64)',
+    ') ENGINE = MergeTree()',
+    'ORDER BY (timestamp, measurement, project)'
+  ].join(' ');
+
+  const headers = { 'X-ClickHouse-User': clickhouseUser };
+  if (clickhousePassword) headers['X-ClickHouse-Key'] = clickhousePassword;
+
+  const response = await fetch(`${clickhouseUrl}/?query=${encodeURIComponent(ddl)}`, {
+    method: 'POST',
+    headers
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(`Failed to create ClickHouse table: HTTP ${response.status}: ${errorText}`);
+  }
+
+  core.info(`Table ${clickhouseDatabase}.${clickhouseTable} is ready`);
+}
+
+/**
+ * Push metrics to ClickHouse
+ * @param {Array} metrics - Array of metric row objects
+ * @param {Object} config - Configuration object
+ */
+async function pushMetricsToClickHouse(metrics, config) {
+  const { clickhouseUrl, clickhouseUser = 'default', clickhousePassword, clickhouseDatabase = 'default', clickhouseTable = 'dora_metrics' } = config;
+
+  await ensureTableExists(config);
+
+  const query = `INSERT INTO ${clickhouseDatabase}.${clickhouseTable} FORMAT JSONEachRow`;
+  const url = `${clickhouseUrl}/?query=${encodeURIComponent(query)}`;
+  const body = metrics.map(row => JSON.stringify(row)).join('\n');
+
+  const headers = {
+    'Content-Type': 'application/json',
+    'X-ClickHouse-User': clickhouseUser
+  };
+  if (clickhousePassword) headers['X-ClickHouse-Key'] = clickhousePassword;
 
   const response = await fetch(url, {
     method: 'POST',
-    headers: {
-      'Content-Type': 'text/plain; charset=utf-8'
-    },
+    headers,
     body
   });
 
@@ -30013,9 +30033,8 @@ module.exports = {
   calculateCycleTimes,
   calculateMTTR,
   detectFailures,
-  createLineProtocol,
-  escapeTag,
-  formatFieldValue,
+  createMetricRow,
+  ensureTableExists,
   // Export constants for testing
   MAX_LEAD_TIME_DAYS,
   MAX_CYCLE_TIME_DAYS,

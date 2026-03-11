@@ -28,13 +28,24 @@ inputs:
   yougile_api_key:
     description: "YouGile API key"
     required: true
-  influxdb_url:
-    description: "InfluxDB URL (e.g., http://influxdb:8181). If not provided, metrics are skipped."
+  db_url:
+    description: "ClickHouse URL (e.g., http://clickhouse:8123). If not provided, metrics are skipped."
     required: false
-  influxdb_bucket:
-    description: "InfluxDB bucket name"
+  db_user:
+    description: "ClickHouse username"
     required: false
-    default: "default"
+    default: "dora"
+  db_password:
+    description: "ClickHouse password"
+    required: false
+  db_database:
+    description: "ClickHouse database name"
+    required: false
+    default: "dora"
+  db_table:
+    description: "ClickHouse table name for DORA metrics"
+    required: false
+    default: "dora_metrics"
   environment:
     description: "Deployment environment (used as metric label)"
     required: false

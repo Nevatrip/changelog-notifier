@@ -1,6 +1,6 @@
 # Changelog Notifier
 
-GitHub Action that parses Conventional Commits, sends a Telegram changelog, and exports DORA metrics to InfluxDB.
+GitHub Action that parses Conventional Commits, sends a Telegram changelog, and exports DORA metrics to ClickHouse.
 
 ## Build and Test
 
@@ -20,7 +20,7 @@ src/
   parsing.js      # pure string utils: commit parsing, MarkdownV2 escaping
   detectors.js    # pure DORA signal detection: reverts, hotfixes, incident types
   changelog.js    # builds changelog text; calls parsing.js + Yogile for enrichment
-  metrics.js      # DORA metric calculation + InfluxDB push; calls detectors, GitHub API, Yogile
+  metrics.js      # DORA metric calculation + ClickHouse push; calls detectors, GitHub API, Yogile
   telegram.js     # thin fetch wrapper for Telegram Bot API sendMessage
   yogile.js       # YouGile HTTP client (class Yogile); bearer auth
 locale.json       # section headers, per-prefix emojis, Russian UI labels
@@ -44,5 +44,6 @@ Task IDs match `[A-Z]+-\d+`. Use `extractTaskId` / `hasTaskId` from `parsing.js`
 ## Key Pitfalls
 
 - Run `npm run build` before committing a release — `dist/index.js` is what the action executes.
-- `influxdb_url` is optional; metrics are skipped when absent — keep that branch non-fatal.
+- `clickhouse_url` is optional; metrics are skipped when absent — keep that branch non-fatal.
+- ClickHouse table is created automatically via `CREATE TABLE IF NOT EXISTS` on first push — do not remove this call.
 - `yougile_api_key` is required by `action.yml` but enrichment failures must not abort the action.
