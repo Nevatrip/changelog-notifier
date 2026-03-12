@@ -45,7 +45,8 @@ async function ensureTableExists(config) {
         '  type Nullable(String),',
         '  incident_type Nullable(String),',
         '  count Nullable(Int32),',
-        '  seconds Nullable(Float64)',
+        '  seconds Nullable(Float64),',
+        '  commit_sha Nullable(String)',
         ') ENGINE = MergeTree()',
         'ORDER BY (timestamp, measurement, project)'
     ].join(' ');

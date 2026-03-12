@@ -51,12 +51,16 @@ async function recordAndPushMetrics(config) {
   const prefixesFound = commits.map(c => extractPrefix(c.message)).filter(Boolean);
   const dominantType = PREFIX_PRIORITY.find(p => prefixesFound.includes(p)) || prefixesFound[0] || null;
 
+  const headCommit = commits[commits.length - 1];
+  const commitSha = headCommit?.sha || headCommit?.id || null;
+
   const tags = {
     project: projectName,
     repository,
     environment,
     has_task: hasTask ? 'yes' : 'no',
-    type: dominantType
+    type: dominantType,
+    commit_sha: commitSha
   };
 
   const metrics = [];
